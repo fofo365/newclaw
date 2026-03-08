@@ -58,6 +58,10 @@ sqlx = { version = "0.8", features = ["mysql", "sqlite"] }
 # Plugin system (Node.js) - Commented out until implemented
 # plugin = { version = "0.1.0", path = "plugin" }
 
+[[bin]]
+name = "migrate"
+path = "src/bin/migrate.rs"
+
 [dev-dependencies]
 tokio = { version = "1.42", features = ["rt-multi-thread", "macros", "test-util"] }
 tracing-test = "0.1"

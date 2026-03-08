@@ -8,6 +8,7 @@ pub mod llm;
 pub mod gateway;
 pub mod vector;
 pub mod plugin;
+pub mod openclaw;
 
 // Re-export main types
 pub use core::AgentEngine;
