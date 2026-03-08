@@ -14,16 +14,36 @@
 
 ## 🚀 快速开始
 
-### 安装
+### 当前状态
+
+✅ **已完成 (v0.1.0)**
+- Rust 核心引擎 (编译通过)
+- 上下文管理器 (SQLite 存储)
+- 智能截断策略
+- Token 估算器
+- CLI 交互模式
+- 完整的项目结构
+
+⏳ **待开发**
+- LLM 集成
+- 更多策略实现
+- 向量数据库集成
+- TypeScript 插件系统
+- Feishu/Lark 通道
+- Web Dashboard
+
+### 安装与运行
 
 ```bash
-# 安装
-cargo install --path . --features "channel-lark,plugin"
+# 编译
+cd /root/newclaw
+cargo build --release
 
-# 运行
-$ newclaw agent    # CLI 模式
-$ newclaw gateway  # Web Gateway
-$ newclaw plugin --list  # 列出插件
+# 运行 CLI 模式
+./target/release/newclaw agent
+
+# 或使用 cargo 直接运行
+cargo run -- agent
 ```
 
 ## 📚 文档

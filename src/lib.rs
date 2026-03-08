@@ -1,7 +1,14 @@
-// Core Agent Engine
+// NewClaw - Next-gen AI Agent framework
 
-pub mod agent;
-pub mod tools;
-pub mod memory;
-pub mod llm;
-pub use agent::AgentEngine;
+pub mod core;
+pub mod channels;
+pub mod config;
+pub mod cli;
+
+// Re-export main types
+pub use core::AgentEngine;
+pub use core::{ContextManager, ContextConfig, ContextChunk};
+pub use core::{StrategyEngine, Strategy, StrategyType};
+
+/// NewClaw version
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
