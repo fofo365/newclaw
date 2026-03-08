@@ -1,6 +1,7 @@
 // NewClaw CLI
 
 use clap::{Parser, Subcommand};
+use std::net::SocketAddr;
 
 #[derive(Parser)]
 #[command(name = "newclaw")]
@@ -15,7 +16,13 @@ enum Commands {
     /// Run in interactive mode
     Agent,
     /// Start web gateway
-    Gateway,
+    Gateway {
+        #[arg(short, long, default_value = "3000")]
+        port: u16,
+        
+        #[arg(short, long, default_value = "127.0.0.1")]
+        host: String,
+    },
     /// List plugins
     Plugin {
         #[arg(short, long)]
@@ -32,9 +39,19 @@ async fn main() -> anyhow::Result<()> {
             println!("Starting NewClaw Agent...");
             newclaw::cli::run_cli().await?;
         }
-        Commands::Gateway => {
-            println!("Starting Web Gateway...");
-            println!("TODO: Implement web gateway");
+        Commands::Gateway { port, host } => {
+            println!("Starting Web Gateway on {}:{}...", host, port);
+            
+            let app = newclaw::gateway::create_router();
+            
+            let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
+            let listener = tokio::net::TcpListener::bind(addr).await?;
+            
+            println!("✅ Gateway listening on http://{}", addr);
+            println!("   Health check: http://{}/health", addr);
+            println!("   Chat endpoint: http://{}/chat", addr);
+            
+            axum::serve(listener, app).await?;
         }
         Commands::Plugin { list: true } => {
             println!("Available plugins:");

@@ -5,6 +5,7 @@ pub mod channels;
 pub mod config;
 pub mod cli;
 pub mod llm;
+pub mod gateway;
 
 // Re-export main types
 pub use core::AgentEngine;
