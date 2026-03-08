@@ -12,3 +12,6 @@ pub use core::{StrategyEngine, Strategy, StrategyType};
 
 /// NewClaw version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+// TODO: Add LLM module when ready
+// pub mod llm;

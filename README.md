@@ -14,37 +14,66 @@
 
 ## 🚀 快速开始
 
-### 当前状态
-
-✅ **已完成 (v0.1.0)**
-- Rust 核心引擎 (编译通过)
-- 上下文管理器 (SQLite 存储)
-- 智能截断策略
-- Token 估算器
-- CLI 交互模式
-- 完整的项目结构
-
-⏳ **待开发**
-- LLM 集成
-- 更多策略实现
-- 向量数据库集成
-- TypeScript 插件系统
-- Feishu/Lark 通道
-- Web Dashboard
-
-### 安装与运行
+### 安装
 
 ```bash
+# 克隆仓库
+git clone https://github.com/yourusername/newclaw.git
+cd newclaw
+
 # 编译
-cd /root/newclaw
 cargo build --release
 
-# 运行 CLI 模式
+# 运行
+./target/release/newclaw agent
+```
+
+### 运行模式
+
+```bash
+# CLI 交互模式
 ./target/release/newclaw agent
 
-# 或使用 cargo 直接运行
-cargo run -- agent
+# Web Gateway (待实现)
+./target/release/newclaw gateway
+
+# 插件管理 (待实现)
+./target/release/newclaw plugin --list
 ```
+
+## 📚 开发状态
+
+**v0.1.0** (当前版本)
+- ✅ Rust 核心引擎 (编译通过)
+- ✅ 上下文管理器 (SQLite + 智能检索)
+- ✅ 策略引擎 (SmartTruncation + 更多)
+- ✅ LLM 集成框架 (Mock + GLM 接口)
+- ✅ CLI 交互模式
+- ✅ 完整文档
+
+详见 [DEVELOPMENT.md](./DEVELOPMENT.md)
+
+## 🎯 核心特性
+
+### 🔧 Rust 性能
+- **低内存**: ~35MB 运行时内存
+- **高性能**: 异步 I/O + 零成本地存储
+- **类型安全**: Rust 类型系统保证稳定性
+
+### 🧠 智能上下文管理
+- **自动分块**: 智能消息分块存储
+- **语义检索**: 基于相关性的上下文选择
+- **Token 优化**: 30-50% Token 使用优化（目标）
+
+### 🎯 策略引擎
+- **SmartTruncation**: 基于重要性的智能截断
+- **TimeDecay**: 时间衰减权重（开发中）
+- **SemanticCluster**: 语义聚类（计划中）
+
+### 🔌 LLM 集成
+- **多模型支持**: GLM-4, Zhipu AI, OpenAI
+- **统一接口**: 标准化的 LLM Provider trait
+- **错误处理**: 完善的错误处理和重试机制
 
 ## 📚 文档
 

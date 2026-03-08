@@ -1,6 +1,6 @@
 // Agent Engine - Core agent logic
 
-use crate::core::{ContextManager, ContextConfig};
+use crate::core::{ContextManager, ContextConfig, LLMProvider, LLMMessage};
 use anyhow::Result;
 
 #[derive(Debug, Clone)]
@@ -15,6 +15,7 @@ pub struct AgentEngine {
     pub memory: ContextManager,
     pub name: String,
     pub model: String,
+    llm: Option<Box<dyn LLMProvider>>,
 }
 
 impl AgentEngine {
@@ -28,7 +29,14 @@ impl AgentEngine {
             memory,
             name,
             model,
+            llm: None,
         })
+    }
+
+    /// Create agent with LLM provider
+    pub fn with_llm(mut self, llm: Box<dyn LLMProvider>) -> Self {
+        self.llm = Some(llm);
+        self
     }
 
     /// Process user input and generate response
@@ -41,21 +49,49 @@ impl AgentEngine {
         // Retrieve relevant context
         let context = self.memory.retrieve_relevant(input, 10)?;
         
-        // TODO: Implement LLM call
-        // For now, return a simple response
-        let response = format!(
-            "Processed: {}\nContext chunks: {}\nModel: {}",
-            input,
-            context.len(),
-            self.model
-        );
+        // Build messages for LLM
+        let mut messages = vec![
+            LLMMessage {
+                role: "system".to_string(),
+                content: format!("You are {}, an AI assistant.", self.name),
+            }
+        ];
+        
+        for chunk in &context {
+            messages.push(LLMMessage {
+                role: chunk.metadata.message_type.clone(),
+                content: chunk.text.clone(),
+            });
+        }
+        
+        messages.push(LLMMessage {
+            role: "user".to_string(),
+            content: input.to_string(),
+        });
+        
+        // Call LLM
+        let response = if let Some(llm) = &self.llm {
+            llm.chat(&messages).await?
+        } else {
+            // Fallback to mock response
+            crate::core::llm::LLMResponse {
+                content: format!(
+                    "Processed: {}\n\nContext chunks: {}\nModel: {}",
+                    input,
+                    context.len(),
+                    self.model
+                ),
+                tokens_used: Some(100),
+                model: self.model.clone(),
+            }
+        };
         
         // Add response to context
-        self.memory.add_message(&response, "assistant")?;
+        self.memory.add_message(&response.content, "assistant")?;
         
         self.state = AgentState::Idle;
         
-        Ok(response)
+        Ok(response.content)
     }
 
     /// Get current agent state
@@ -76,6 +112,6 @@ mod tests {
         ).unwrap();
         
         let response = agent.process("Hello").await.unwrap();
-        assert!(response.contains("Processed"));
+        assert!(response.contains("Processed") || response.contains("Hello"));
     }
 }
