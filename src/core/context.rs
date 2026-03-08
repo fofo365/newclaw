@@ -1,13 +1,16 @@
-// Context Manager - Handles message storage and retrieval
+// Context Manager - Handles message storage and retrieval with vector search
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
 
+use crate::vector::{VectorStore, MemoryVectorStore, VectorDocument, DocumentMetadata, mock_embedding};
+
 #[derive(Debug)]
 pub struct ContextManager {
     db: Connection,
     pub config: ContextConfig,
+    vector_store: MemoryVectorStore,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,6 +18,7 @@ pub struct ContextConfig {
     pub max_chunks: usize,
     pub max_tokens: usize,
     pub overlap_tokens: usize,
+    pub enable_vector_search: bool,
 }
 
 impl Default for ContextConfig {
@@ -23,6 +27,7 @@ impl Default for ContextConfig {
             max_chunks: 100,
             max_tokens: 8000,
             overlap_tokens: 200,
+            enable_vector_search: true,
         }
     }
 }
@@ -64,7 +69,9 @@ impl ContextManager {
             [],
         )?;
 
-        Ok(Self { db, config })
+        let vector_store = MemoryVectorStore::new();
+
+        Ok(Self { db, config, vector_store })
     }
 
     pub fn add_message(&mut self, message: &str, source: &str) -> Result<String> {
@@ -73,19 +80,39 @@ impl ContextManager {
         for chunk in chunks {
             let id = uuid::Uuid::new_v4().to_string();
             let tokens = estimate_tokens(&chunk);
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_secs() as i64;
+            
             let metadata = ContextMetadata {
                 source: source.to_string(),
-                timestamp: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)?
-                    .as_secs() as i64,
+                timestamp,
                 message_type: "user".to_string(),
             };
             
+            // Store in SQLite
             self.db.execute(
                 "INSERT INTO context_chunks (id, text, tokens, created_at, metadata) \
                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                [&id, &chunk, &(tokens as i32).to_string(), &metadata.timestamp.to_string(), &serde_json::to_string(&metadata)?],
+                [&id, &chunk, &(tokens as i32).to_string(), &timestamp.to_string(), &serde_json::to_string(&metadata)?],
             )?;
+            
+            // Store in vector store
+            if self.config.enable_vector_search {
+                let embedding = mock_embedding(&chunk);
+                let doc = VectorDocument {
+                    id: id.clone(),
+                    text: chunk.clone(),
+                    embedding,
+                    metadata: DocumentMetadata {
+                        source: source.to_string(),
+                        timestamp,
+                        message_type: "user".to_string(),
+                        tokens,
+                    },
+                };
+                self.vector_store.add_document(doc)?;
+            }
             
             return Ok(id);
         }
@@ -93,7 +120,31 @@ impl ContextManager {
         Ok(uuid::Uuid::new_v4().to_string())
     }
 
-    pub fn retrieve_relevant(&self, _query: &str, limit: usize) -> Result<Vec<ContextChunk>> {
+    pub fn retrieve_relevant(&self, query: &str, limit: usize) -> Result<Vec<ContextChunk>> {
+        // Try vector search first
+        if self.config.enable_vector_search {
+            let query_embedding = mock_embedding(query);
+            if let Ok(results) = self.vector_store.search(&query_embedding, limit) {
+                if !results.is_empty() {
+                    return Ok(results
+                        .into_iter()
+                        .map(|r| ContextChunk {
+                            id: r.document.id,
+                            text: r.document.text,
+                            tokens: r.document.metadata.tokens,
+                            created_at: r.document.metadata.timestamp,
+                            metadata: ContextMetadata {
+                                source: r.document.metadata.source,
+                                timestamp: r.document.metadata.timestamp,
+                                message_type: r.document.metadata.message_type,
+                            },
+                        })
+                        .collect());
+                }
+            }
+        }
+        
+        // Fallback to time-based retrieval
         let mut stmt = self.db.prepare(
             "SELECT id, text, tokens, created_at, metadata FROM context_chunks 
             ORDER BY created_at DESC LIMIT ?1"

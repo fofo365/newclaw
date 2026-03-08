@@ -6,6 +6,7 @@ pub mod config;
 pub mod cli;
 pub mod llm;
 pub mod gateway;
+pub mod vector;
 
 // Re-export main types
 pub use core::AgentEngine;
