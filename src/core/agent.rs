@@ -1,6 +1,7 @@
 // Agent Engine - Core agent logic
 
-use crate::core::{ContextManager, ContextConfig, LLMProvider, LLMMessage};
+use crate::core::{ContextManager, ContextConfig};
+use crate::llm::{LLMProvider, LLMMessage, LLMResponse, LLMRequest};
 use anyhow::Result;
 
 #[derive(Debug, Clone)]
@@ -71,17 +72,24 @@ impl AgentEngine {
         
         // Call LLM
         let response = if let Some(llm) = &self.llm {
-            llm.chat(&messages).await?
+            let request = LLMRequest {
+                model: self.model.clone(),
+                messages,
+                temperature: 0.7,
+                max_tokens: Some(2000),
+            };
+            
+            llm.chat(&request).await?
         } else {
             // Fallback to mock response
-            crate::core::llm::LLMResponse {
+            LLMResponse {
                 content: format!(
                     "Processed: {}\n\nContext chunks: {}\nModel: {}",
                     input,
                     context.len(),
                     self.model
                 ),
-                tokens_used: Some(100),
+                tokens_used: 100,
                 model: self.model.clone(),
             }
         };
