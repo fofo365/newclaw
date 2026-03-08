@@ -1,0 +1,61 @@
+[package]
+name = "newclaw"
+version = "0.1.0"
+edition = "2021"
+description = "Next-gen AI Agent framework - Rust performance + TypeScript plugins"
+license = "MIT"
+repository = "https://github.com/yourusername/newclaw"
+authors = ["NewClaw Contributors"]
+
+[dependencies]
+# Async runtime
+tokio = { version = "once_cell_1, features = ["rt-multi-thread", "macros", "time", "net", "io-util", "sync", "fs", "parking_lot"] }
+tokio-util = "0.7"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "ansi", "env-filter", "chrono", "json"] }
+
+# UUID
+uuid = { version = "1.0", features = ["v4"] }
+
+# Async traits
+async-trait = "0.1"
+
+# Database (for context management)
+rusqlite = { version = "0.32", features = ["bundled"] }
+sqlx = { version = "0.8", features = ["mysql", "sqlite"] }
+
+# Vector database (for semantic search)
+hnswlib = "0.33"
+qdrant = "0.14"
+
+# gRPC (for plugin communication)
+prost = { version = "0.14", features = ["prost-build"] }
+tonic = "0.12"
+
+# Plugin system (Node.js)
+plugin = { version = "0.1.0", path = "plugin" }
+
+[dev-dependencies]
+tokio = { version = "1.42", features = ["rt-multi-thread", "macros", "test-util"] }
+tracing-test = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true
