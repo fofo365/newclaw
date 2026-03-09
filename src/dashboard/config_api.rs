@@ -39,7 +39,7 @@ pub struct ProviderInfo {
 }
 
 /// LLM 配置更新请求
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateLLMConfigRequest {
     pub provider: Option<String>,
     pub model: Option<String>,
@@ -54,13 +54,29 @@ pub struct UpdateLLMConfigRequest {
 pub async fn get_llm_config(
     Extension(state): Extension<Arc<super::DashboardState>>,
 ) -> Result<Json<LLMConfigResponse>, AppError> {
-    // 这里暂时返回默认配置
-    // 实际应该从 ConfigState 读取
+    // 从 DashboardState 读取配置
+    let llm_config = state.llm_config.read().await;
+    
+    let (provider, model, temperature, max_tokens) = match llm_config.as_ref() {
+        Some(cfg) => (
+            cfg.provider.clone(),
+            cfg.model.clone(),
+            cfg.temperature,
+            cfg.max_tokens,
+        ),
+        None => (
+            "glm".to_string(),
+            "glm-4".to_string(),
+            0.7,
+            4096,
+        ),
+    };
+    
     let response = LLMConfigResponse {
-        provider: "glm".to_string(),
-        model: "glm-4".to_string(),
-        temperature: 0.7,
-        max_tokens: 4096,
+        provider,
+        model,
+        temperature,
+        max_tokens,
         providers: vec![
             ProviderInfo {
                 name: "openai".to_string(),
@@ -97,13 +113,9 @@ pub async fn update_llm_config(
     Extension(state): Extension<Arc<super::DashboardState>>,
     Json(payload): Json<UpdateLLMConfigRequest>,
 ) -> Result<Json<LLMConfigResponse>, AppError> {
-    // TODO: 实际保存配置到文件
-    // 目前只返回更新后的配置
-    
-    let provider = payload.provider.unwrap_or_else(|| "glm".to_string());
-    let model = payload.model.unwrap_or_else(|| "glm-4".to_string());
-    
-    tracing::info!("Updating LLM config: provider={}, model={}", provider, model);
+    // 更新配置
+    state.update_llm_config(payload).await
+        .map_err(|e| AppError(e))?;
     
     // 返回更新后的配置
     get_llm_config(Extension(state)).await
