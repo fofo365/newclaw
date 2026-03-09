@@ -1,5 +1,5 @@
 // NewClaw - Next-gen AI Agent framework
-// Version: 0.2.0
+// Version: 0.3.0
 
 // Core modules
 pub mod core;
@@ -15,6 +15,9 @@ pub mod openclaw;
 // v0.2.0 - Security and Communication modules
 pub mod security;
 pub mod communication;
+
+// v0.3.0 - Tool execution engine
+pub mod tools;
 
 // Re-export main types
 pub use core::AgentEngine;
@@ -39,6 +42,10 @@ pub use communication::RedisMessageQueue;
 
 // v0.2.0 - Core isolation
 pub use core::IsolationLevel;
+
+// v0.3.0 - Tool re-exports
+pub use tools::{Tool, ToolOutput, ToolError, ToolResult, ToolDescription, Media, MediaType, ToolRegistry};
+pub use tools::{ReadTool, WriteTool, EditTool, ExecTool, SearchTool};
 
 /// NewClaw version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
