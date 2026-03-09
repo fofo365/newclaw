@@ -1,6 +1,7 @@
 // NewClaw v0.4.0 - 模型数据
 // 从 zeroclaw 提取的模型信息
 
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -28,7 +29,7 @@ pub struct ModelInfo {
 }
 
 /// GLM 模型列表
-pub const GLM_MODELS: &[ModelInfo] = &[
+pub static GLM_MODELS: Lazy<Vec<ModelInfo>> = Lazy::new(|| vec![
     ModelInfo {
         id: "glm-4".to_string(),
         display_name: "GLM-4".to_string(),
@@ -161,10 +162,10 @@ pub const GLM_MODELS: &[ModelInfo] = &[
         input_price: 0.1,
         output_price: 0.1,
     },
-];
+]);
 
 /// OpenAI 模型列表
-pub const OPENAI_MODELS: &[ModelInfo] = &[
+pub static OPENAI_MODELS: Lazy<Vec<ModelInfo>> = Lazy::new(|| vec![
     ModelInfo {
         id: "gpt-4o".to_string(),
         display_name: "GPT-4o".to_string(),
@@ -231,10 +232,10 @@ pub const OPENAI_MODELS: &[ModelInfo] = &[
         input_price: 3.0,
         output_price: 12.0,
     },
-];
+]);
 
 /// Claude 模型列表
-pub const CLAUDE_MODELS: &[ModelInfo] = &[
+pub static CLAUDE_MODELS: Lazy<Vec<ModelInfo>> = Lazy::new(|| vec![
     ModelInfo {
         id: "claude-3-5-sonnet-20241022".to_string(),
         display_name: "Claude 3.5 Sonnet".to_string(),
@@ -290,18 +291,18 @@ pub const CLAUDE_MODELS: &[ModelInfo] = &[
         input_price: 0.25,
         output_price: 1.25,
     },
-];
+]);
 
 /// 获取所有模型
-pub fn get_all_models() -> Vec<&'static ModelInfo> {
-    GLM_MODELS.iter()
-        .chain(OPENAI_MODELS.iter())
-        .chain(CLAUDE_MODELS.iter())
+pub fn get_all_models() -> Vec<ModelInfo> {
+    GLM_MODELS.iter().cloned()
+        .chain(OPENAI_MODELS.iter().cloned())
+        .chain(CLAUDE_MODELS.iter().cloned())
         .collect()
 }
 
 /// 根据提供商获取模型
-pub fn get_models_by_provider(provider: &str) -> Vec<&'static ModelInfo> {
+pub fn get_models_by_provider(provider: &str) -> Vec<ModelInfo> {
     let provider_lower = provider.to_lowercase();
     
     if provider_lower.starts_with("glm") || provider_lower == "zhipu" || provider_lower.starts_with("zai") || provider_lower.starts_with("z.ai") {
@@ -316,24 +317,24 @@ pub fn get_models_by_provider(provider: &str) -> Vec<&'static ModelInfo> {
 }
 
 /// 查找模型信息
-pub fn find_model(model_id: &str) -> Option<&'static ModelInfo> {
+pub fn find_model(model_id: &str) -> Option<ModelInfo> {
     get_all_models().into_iter().find(|m| m.id == model_id)
 }
 
 /// 获取默认模型
-pub fn get_default_model(provider: &str) -> &'static str {
+pub fn get_default_model(provider: &str) -> String {
     let provider_lower = provider.to_lowercase();
     
     if provider_lower.starts_with("glm") || provider_lower == "zhipu" {
-        "glm-4"
+        "glm-4".to_string()
     } else if provider_lower.starts_with("zai") || provider_lower.starts_with("z.ai") || provider_lower.starts_with("glmcode") {
-        "glm-4.7"
+        "glm-4.7".to_string()
     } else if provider_lower == "openai" {
-        "gpt-4o-mini"
+        "gpt-4o-mini".to_string()
     } else if provider_lower == "claude" || provider_lower == "anthropic" {
-        "claude-3-5-sonnet-20241022"
+        "claude-3-5-sonnet-20241022".to_string()
     } else {
-        "glm-4"
+        "glm-4".to_string()
     }
 }
 
@@ -359,7 +360,7 @@ mod tests {
     fn test_find_model() {
         let model = find_model("glm-4");
         assert!(model.is_some());
-        assert_eq!(model.unwrap().display_name, "GLM-4");
+        assert_eq!(model.unwrap().display_name, "GLM-4".to_string());
     }
     
     #[test]

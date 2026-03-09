@@ -22,6 +22,9 @@ pub mod tools;
 // v0.4.0 - Feishu WebSocket connection management
 pub mod feishu_websocket;
 
+// v0.4.0 - Dashboard Web UI
+pub mod dashboard;
+
 // Re-export main types
 pub use core::AgentEngine;
 pub use core::{ContextManager, ContextConfig, ContextChunk};

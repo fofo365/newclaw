@@ -5,12 +5,18 @@
 // 2. 自动重连机制
 // 3. 心跳检测
 // 4. 事件处理
+// 5. 事件轮询系统
+// 6. 消息类型支持
+// 7. 错误重试机制
 
 pub mod pool;
 pub mod heartbeat;
 pub mod reconnect;
 pub mod event;
 pub mod manager;
+pub mod polling;
+pub mod messages;
+pub mod retry;
 
 // Re-exports
 pub use pool::{ConnectionPool, Connection, ConnectionState};
@@ -18,6 +24,17 @@ pub use heartbeat::{HeartbeatManager, HeartbeatConfig};
 pub use reconnect::{ReconnectionManager, ReconnectStrategy};
 pub use event::{EventHandler, FeishuEvent};
 pub use manager::FeishuWebSocketManager;
+pub use polling::{EventPoller, EventQueue, PollingConfig, PollingEvent, PollingManager};
+pub use messages::{
+    MessageType, BaseMessage, TextMessage, RichTextMessage, CardMessage,
+    ImageMessage, FileMessage, MessageSender, ReceiveIdType,
+    TextContent, RichTextContent, CardContent, ImageContent, FileContent,
+};
+pub use retry::{
+    RetryExecutor, RetryStrategy, RetryContext, RetryManager, RetryMetrics,
+    ErrorCategory, ErrorSeverity, AlertRule, FallbackStrategy,
+    CacheFallback, DefaultValueFallback,
+};
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -82,7 +99,7 @@ impl Default for WebSocketConfig {
 }
 
 /// WebSocket 错误类型
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum WebSocketError {
     #[error("Connection failed: {0}")]
     ConnectionFailed(String),
@@ -103,13 +120,19 @@ pub enum WebSocketError {
     ConnectionNotFound(String),
     
     #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(String),
     
     #[error("WebSocket error: {0}")]
     WebSocket(String),
     
     #[error("Serialization error: {0}")]
     Serialization(String),
+}
+
+impl From<std::io::Error> for WebSocketError {
+    fn from(err: std::io::Error) -> Self {
+        WebSocketError::Io(err.to_string())
+    }
 }
 
 pub type WebSocketResult<T> = Result<T, WebSocketError>;

@@ -36,7 +36,7 @@ impl RedisMessageQueue {
         redis::cmd("PUBLISH")
             .arg(&channel)
             .arg(&payload)
-            .query_async(&mut conn)
+            .query_async::<()>(&mut conn)
             .await?;
         
         Ok(())
@@ -126,7 +126,7 @@ impl RedisMessageQueue {
         redis::cmd("PUBLISH")
             .arg(topic)
             .arg(&payload)
-            .query_async(&mut conn)
+            .query_async::<()>(&mut conn)
             .await?;
         
         Ok(())
