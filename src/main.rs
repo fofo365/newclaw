@@ -1,32 +1,106 @@
-// NewClaw CLI
+// NewClaw CLI - v0.3.1
+//
+// 支持：
+// 1. 多 LLM Provider
+// 2. 配置文件
+// 3. Gateway 模式
+// 4. 插件系统
 
 use clap::{Parser, Subcommand};
 use std::net::SocketAddr;
 
 #[derive(Parser)]
 #[command(name = "newclaw")]
-#[command(about = "Next-gen AI Agent framework", long_about = None)]
+#[command(version = "0.3.1")]
+#[command(about = "Next-gen AI Agent framework - Rust performance + TypeScript plugins", long_about = None)]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
+    
+    /// LLM Provider: openai, claude, glm
+    #[arg(short, long, global = true)]
+    provider: Option<String>,
+    
+    /// Model to use
+    #[arg(short, long, global = true)]
+    model: Option<String>,
+    
+    /// Config file path
+    #[arg(short, long, global = true)]
+    config: Option<String>,
+    
+    /// Verbose output
+    #[arg(short, long, global = true)]
+    verbose: bool,
 }
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Run in interactive mode
-    Agent,
-    /// Start web gateway
+    /// Run in interactive chat mode
+    Chat,
+    
+    /// Start web gateway server
     Gateway {
+        /// Port to listen on
         #[arg(short, long, default_value = "3000")]
         port: u16,
         
-        #[arg(short, long, default_value = "127.0.0.1")]
+        /// Host to bind to
+        #[arg(short, long, default_value = "0.0.0.0")]
         host: String,
     },
-    /// List plugins
-    Plugin {
+    
+    /// Generate example configuration file
+    Config {
+        /// Output file path (default: stdout)
         #[arg(short, long)]
-        list: bool,
+        output: Option<String>,
+    },
+    
+    /// List and manage plugins
+    Plugin {
+        #[command(subcommand)]
+        action: Option<PluginCommands>,
+    },
+    
+    /// Manage tools
+    Tools {
+        #[command(subcommand)]
+        action: Option<ToolCommands>,
+    },
+}
+
+#[derive(Subcommand)]
+enum PluginCommands {
+    /// List installed plugins
+    List,
+    
+    /// Install a plugin
+    Install {
+        /// Plugin name or path
+        name: String,
+    },
+    
+    /// Remove a plugin
+    Remove {
+        /// Plugin name
+        name: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum ToolCommands {
+    /// List available tools
+    List,
+    
+    /// Execute a tool
+    Exec {
+        /// Tool name
+        name: String,
+        
+        /// JSON parameters
+        #[arg(short, long)]
+        params: Option<String>,
     },
 }
 
@@ -34,33 +108,139 @@ enum Commands {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     
+    // 初始化日志
+    if cli.verbose {
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::DEBUG)
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::INFO)
+            .init();
+    }
+    
+    // 加载配置
+    let mut config = if let Some(config_path) = &cli.config {
+        newclaw::config::Config::from_file(config_path)?
+    } else {
+        newclaw::config::Config::load()?
+    };
+    
+    // 应用命令行覆盖
+    if let Some(provider) = &cli.provider {
+        config.llm.provider = provider.clone();
+    }
+    if let Some(model) = &cli.model {
+        config.llm.model = model.clone();
+    }
+    
+    // 执行命令
     match cli.command {
-        Commands::Agent => {
-            println!("Starting NewClaw Agent...");
+        None | Some(Commands::Chat) => {
+            // 默认：交互模式
             newclaw::cli::run_cli().await?;
         }
-        Commands::Gateway { port, host } => {
-            println!("Starting Web Gateway on {}:{}...", host, port);
+        
+        Some(Commands::Gateway { port, host }) => {
+            config.gateway.port = port;
+            config.gateway.host = host;
             
-            let app = newclaw::gateway::create_router();
+            println!("🌐 Starting NewClaw Gateway...");
+            println!("   Provider: {}", config.llm.provider);
+            println!("   Model:    {}", config.get_model());
+            println!("   Address:  {}:{}", config.gateway.host, config.gateway.port);
+            println!();
             
-            let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
-            let listener = tokio::net::TcpListener::bind(addr).await?;
-            
-            println!("✅ Gateway listening on http://{}", addr);
-            println!("   Health check: http://{}/health", addr);
-            println!("   Chat endpoint: http://{}/chat", addr);
-            
-            axum::serve(listener, app).await?;
+            newclaw::gateway::run_server(config).await?;
         }
-        Commands::Plugin { list: true } => {
-            println!("Available plugins:");
-            println!("TODO: Implement plugin system");
+        
+        Some(Commands::Config { output }) => {
+            let content = newclaw::config::generate_example_config();
+            
+            if let Some(path) = output {
+                std::fs::write(&path, &content)?;
+                println!("✅ Configuration written to: {}", path);
+            } else {
+                println!("{}", content);
+            }
         }
-        Commands::Plugin { list: false } => {
-            println!("Use --list to show plugins");
+        
+        Some(Commands::Plugin { action }) => {
+            match action {
+                None | Some(PluginCommands::List) => {
+                    println!("📦 Installed Plugins:");
+                    println!("   (No plugins installed yet)");
+                    println!();
+                    println!("💡 To install a plugin:");
+                    println!("   newclaw plugin install <name>");
+                }
+                Some(PluginCommands::Install { name }) => {
+                    println!("📦 Installing plugin: {}", name);
+                    println!("⚠️  Plugin system coming soon!");
+                }
+                Some(PluginCommands::Remove { name }) => {
+                    println!("🗑️  Removing plugin: {}", name);
+                    println!("⚠️  Plugin system coming soon!");
+                }
+            }
+        }
+        
+        Some(Commands::Tools { action }) => {
+            match action {
+                None | Some(ToolCommands::List) => {
+                    println!("🔧 Available Tools:");
+                    println!("   read   - Read file contents");
+                    println!("   write  - Write to file");
+                    println!("   edit   - Edit file (replace text)");
+                    println!("   exec   - Execute shell command");
+                    println!("   search - Web search");
+                    println!();
+                    println!("💡 To execute a tool:");
+                    println!("   newclaw tools exec read --params '{{\"path\": \"file.txt\"}}'");
+                }
+                Some(ToolCommands::Exec { name, params }) => {
+                    let params_json = params
+                        .map(|p| serde_json::from_str(&p))
+                        .transpose()?
+                        .unwrap_or(serde_json::json!({}));
+                    
+                    println!("🔧 Executing tool: {}", name);
+                    println!("   Params: {}", serde_json::to_string_pretty(&params_json)?);
+                    println!();
+                    
+                    // 创建工具注册表并执行
+                    let registry = newclaw::tools::ToolRegistry::new();
+                    register_default_tools(&registry).await;
+                    
+                    match registry.execute(&name, params_json).await {
+                        Ok(output) => {
+                            if output.is_success() {
+                                println!("✅ Result:");
+                                println!("{}", output.content);
+                            } else {
+                                println!("❌ Error: {:?}", output.error);
+                            }
+                        }
+                        Err(e) => {
+                            println!("❌ Tool execution failed: {}", e);
+                        }
+                    }
+                }
+            }
         }
     }
     
     Ok(())
+}
+
+/// 注册默认工具
+async fn register_default_tools(registry: &newclaw::tools::ToolRegistry) {
+    use std::sync::Arc;
+    use newclaw::tools::{ReadTool, WriteTool, EditTool, ExecTool, SearchTool};
+    
+    registry.register(Arc::new(ReadTool)).await;
+    registry.register(Arc::new(WriteTool)).await;
+    registry.register(Arc::new(EditTool)).await;
+    registry.register(Arc::new(ExecTool)).await;
+    registry.register(Arc::new(SearchTool)).await;
 }

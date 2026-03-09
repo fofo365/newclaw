@@ -7,7 +7,7 @@ pub mod claude;
 pub mod streaming;
 
 // Re-exports
-pub use provider::{LLMProviderV3, ChatRequest, ChatResponse, Message, MessageRole, LLMError, ModelStrategy, LLMConfig, ProviderType};
+pub use provider::{LLMProviderV3, ChatRequest, ChatResponse, Message, MessageRole, LLMError, ModelStrategy, LLMConfig, ProviderType, TokenUsage};
 pub use openai::OpenAIProvider;
 pub use claude::ClaudeProvider;
 pub use streaming::{StreamChunk, StreamingResponse, SSEEvent, stream_llm_response, WebSocketStream, FeishuStreamAdapter};

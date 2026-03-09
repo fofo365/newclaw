@@ -1,5 +1,5 @@
 // NewClaw - Next-gen AI Agent framework
-// Version: 0.3.0
+// Version: 0.4.0
 
 // Core modules
 pub mod core;
@@ -18,6 +18,9 @@ pub mod communication;
 
 // v0.3.0 - Tool execution engine
 pub mod tools;
+
+// v0.4.0 - Feishu WebSocket connection management
+pub mod feishu_websocket;
 
 // Re-export main types
 pub use core::AgentEngine;
@@ -46,6 +49,15 @@ pub use core::IsolationLevel;
 // v0.3.0 - Tool re-exports
 pub use tools::{Tool, ToolOutput, ToolError, ToolResult, ToolDescription, Media, MediaType, ToolRegistry};
 pub use tools::{ReadTool, WriteTool, EditTool, ExecTool, SearchTool};
+
+// v0.4.0 - Feishu WebSocket re-exports
+pub use feishu_websocket::{
+    FeishuWebSocketManager, WebSocketConfig, WebSocketError, WebSocketResult,
+    ConnectionPool, Connection, ConnectionState,
+    HeartbeatManager, HeartbeatConfig,
+    ReconnectionManager, ReconnectStrategy,
+    EventHandler, FeishuEvent, LogLevel,
+};
 
 /// NewClaw version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

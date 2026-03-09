@@ -14,6 +14,7 @@ use std::fs;
 use std::path::Path;
 
 /// 读取文件工具
+#[derive(Default)]
 pub struct ReadTool;
 
 #[async_trait::async_trait]
@@ -113,6 +114,7 @@ fn is_image_file(path: &str) -> bool {
 }
 
 /// 写入文件工具
+#[derive(Default)]
 pub struct WriteTool;
 
 #[async_trait::async_trait]
@@ -171,6 +173,7 @@ struct WriteParams {
 }
 
 /// 编辑文件工具
+#[derive(Default)]
 pub struct EditTool;
 
 #[async_trait::async_trait]
@@ -234,6 +237,7 @@ struct EditParams {
 }
 
 /// Shell 命令执行工具
+#[derive(Default)]
 pub struct ExecTool;
 
 #[async_trait::async_trait]
@@ -311,6 +315,7 @@ struct ExecParams {
 }
 
 /// 网络搜索工具
+#[derive(Default)]
 pub struct SearchTool;
 
 #[async_trait::async_trait]

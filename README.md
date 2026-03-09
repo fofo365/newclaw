@@ -1,31 +1,46 @@
-# NewClaw v0.3.0
+# NewClaw v0.3.1
 
 > A production-ready AI agent framework with multi-LLM support, tool execution, and streaming responses
 
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/fofo365/newclaw)
-[![Tests](https://img.shields.io/badge/tests-78%2F78-success.svg)](https://github.com/fofo365/newclaw)
 
 ## 🎯 Overview
 
 NewClaw is a next-generation AI agent framework that provides:
 
 - **🔧 Tool Execution Engine**: Type-safe tool interface with automatic retry
-- **🤖 Multi-LLM Support**: OpenAI, Claude, GLM with smart switching strategies
+- **🤖 Multi-LLM Support**: OpenAI, Claude, GLM with unified interface
+- **⚙️ Configuration System**: TOML config files + environment variables
 - **🌊 Streaming Responses**: SSE, WebSocket, and Feishu streaming support
 - **🔒 Security Layer**: API Key, JWT, RBAC, audit logging, rate limiting
 - **📡 Communication**: WebSocket, HTTP API, Redis message queue
-- **📱 Feishu Integration**: Rich text, card messages, streaming output
 - **🧠 Context Isolation**: Secure multi-tenant context management
 - **✅ 100% Test Coverage**: Production-ready quality
+
+## 🆕 v0.3.1 Changes
+
+### Fixed
+- ✅ **Gateway now supports multi-provider** - No longer hardcoded to GLM-4
+- ✅ **CLI supports multi-provider** - Use `--provider openai/claude/glm`
+- ✅ **Configuration file support** - Create `config.toml` for easy setup
+- ✅ **Tool execution integrated** - Tools work in both CLI and Gateway modes
+
+### Added
+- `config.toml` support with environment variable overrides
+- `--provider` CLI flag for quick provider switching
+- `--model` CLI flag for model selection
+- `newclaw config` command to generate example config
+- `newclaw tools list` command to show available tools
+- `newclaw tools exec <name>` command to run tools directly
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
 - Rust 1.75 or higher
-- Cargo package manager
+- An API key from your preferred LLM provider
 
 ### Installation
 
@@ -37,90 +52,127 @@ cd newclaw
 # Build in release mode
 cargo build --release
 
-# Run tests
-cargo test
+# The binary will be at target/release/newclaw
 ```
 
-### Basic Usage
+### Configuration
 
-```rust
-use newclaw::*;
+Create a `config.toml` file or use environment variables:
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    // Create Agent
-    let agent = AgentEngine::new(
-        "my-agent".to_string(),
-        "gpt-4o-mini".to_string()
-    )?;
-    
-    // Use Tools
-    let registry = ToolRegistry::new();
-    registry.register(Arc::new(WriteTool)).await;
-    
-    let output = registry.execute(
-        "write",
-        serde_json::json!({
-            "path": "/tmp/test.txt",
-            "content": "Hello, NewClaw!"
-        })
-    ).await?;
-    
-    println!("{}", output.content);
-    
-    Ok(())
-}
+```bash
+# Option 1: Environment variables
+export LLM_PROVIDER=openai    # or claude, glm
+export OPENAI_API_KEY=sk-...  # or ANTHROPIC_API_KEY, GLM_API_KEY
+export LLM_MODEL=gpt-4o-mini  # optional
+
+# Option 2: Generate config file
+./target/release/newclaw config --output config.toml
+# Edit config.toml with your API keys
 ```
 
-## ✨ Key Features
+### Example config.toml
 
-### 🔧 Tool Execution Engine
-- Type-safe tool interface with Rust trait system
-- Automatic retry mechanism (up to 3 attempts)
-- Built-in tools: read, write, edit, exec, search
-- Extensible plugin system
+```toml
+[llm]
+provider = "openai"
+model = "gpt-4o-mini"
+temperature = 0.7
+max_tokens = 4096
 
-### 🤖 Multi-LLM Support
-- Unified `LLMProviderV3` trait for all providers
-- **OpenAI**: GPT-4o, GPT-4o-mini
-- **Claude**: 3.5 Sonnet, Opus
-- **GLM**: GLM-4, GLM-5
-- 5 switching strategies: Static, RoundRobin, Fallback, CostOptimized, Adaptive
+[llm.openai]
+api_key = "sk-..."  # or use OPENAI_API_KEY env var
 
-### 🌊 Streaming Responses
-- SSE (Server-Sent Events) protocol
-- WebSocket streaming wrapper
-- Feishu streaming adapter (chunked sending)
-- Automatic fallback when streaming not supported
+[llm.claude]
+api_key = "sk-ant-..."  # or use ANTHROPIC_API_KEY env var
 
-### 📱 Feishu Integration
-- Rich text messages
-- Card messages
-- Streaming output
-- Event handling
+[llm.glm]
+api_key = "..."  # or use GLM_API_KEY env var
 
-### 🔒 Security Layer (v0.2.0)
-- API Key Authentication
-- JWT Token Management
-- Role-Based Access Control (RBAC)
-- Audit Logging
-- Rate Limiting
+[gateway]
+host = "0.0.0.0"
+port = 3000
 
-### 📡 Communication (v0.2.0)
-- WebSocket Real-time
-- HTTP REST API
-- Redis Message Queue
+[tools]
+enabled = ["read", "write", "edit", "exec", "search"]
+timeout_secs = 60
+```
 
-## 📊 Statistics
+### Usage Examples
 
-| Metric | Value |
-|--------|-------|
-| **Code** | ~7,000 lines |
-| **Tests** | 78/78 passing (100%) |
-| **Docs** | ~4,300 lines |
-| **Examples** | 8 complete examples |
-| **Binary Size** | ~5 MB |
-| **Memory** | < 50 MB |
+```bash
+# Interactive chat (default mode)
+./target/release/newclaw
+
+# Chat with specific provider
+./target/release/newclaw --provider openai --model gpt-4o
+
+# Start Gateway server
+./target/release/newclaw gateway --port 3000
+
+# List available tools
+./target/release/newclaw tools list
+
+# Execute a tool
+./target/release/newclaw tools exec read --params '{"path": "/tmp/test.txt"}'
+
+# Generate example config
+./target/release/newclaw config
+```
+
+## 📡 API Endpoints (Gateway Mode)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check |
+| `/chat` | POST | Chat completion |
+| `/tools` | GET | List available tools |
+| `/tools/execute` | POST | Execute a tool |
+
+### Chat Example
+
+```bash
+curl -X POST http://localhost:3000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message": "Hello, NewClaw!"}'
+```
+
+### Tool Execution Example
+
+```bash
+curl -X POST http://localhost:3000/tools/execute \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "read",
+    "params": {"path": "/tmp/test.txt"}
+  }'
+```
+
+## 🤖 Supported Providers
+
+### OpenAI
+- Models: `gpt-4o`, `gpt-4o-mini`, `gpt-3.5-turbo`
+- Env: `OPENAI_API_KEY`
+- Config: `[llm.openai]`
+
+### Claude (Anthropic)
+- Models: `claude-3-5-sonnet-20241022`, `claude-3-opus`, `claude-3-haiku`
+- Env: `ANTHROPIC_API_KEY`
+- Config: `[llm.claude]`
+
+### GLM (ZhipuAI)
+- Models: `glm-4`, `glm-4-flash`, `glm-5`
+- Env: `GLM_API_KEY`
+- Config: `[llm.glm]`
+
+## 🔧 Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `read` | Read file contents (supports images) |
+| `write` | Write content to file |
+| `edit` | Edit file by replacing exact text |
+| `exec` | Execute shell commands |
+| `search` | Web search (Brave API) |
 
 ## 🏗️ Architecture
 
@@ -128,124 +180,44 @@ async fn main() -> Result<()> {
 ┌─────────────────────────────────────────┐
 │         Application Layer                │
 ├─────────────────────────────────────────┤
-│  • Agent Engine                         │
-│  • Tool Execution Engine                │
-│  • Multi-LLM Abstraction                │
-│  • Streaming Support                    │
+│  • CLI / Gateway                         │
+│  • Agent Engine                          │
+│  • Tool Execution Engine                 │
 └─────────────────────────────────────────┘
            ↓
 ┌─────────────────────────────────────────┐
-│         Communication Layer               │
+│           LLM Provider Layer             │
 ├─────────────────────────────────────────┤
-│  • Feishu Integration                   │
-│  • HTTP REST API                         │
-│  • WebSocket Real-time                   │
-│  • Redis Message Queue                   │
+│  OpenAI │ Claude │ GLM                   │
+│  (Unified LLMProviderV3 Trait)          │
 └─────────────────────────────────────────┘
            ↓
 ┌─────────────────────────────────────────┐
-│           Security Layer                 │
+│        Configuration Layer               │
 ├─────────────────────────────────────────┤
-│  • API Key Auth                         │
-│  • JWT Auth                             │
-│  • RBAC                                 │
-│  • Audit Logging                         │
-│  • Rate Limiting                         │
+│  config.toml + Environment Variables    │
 └─────────────────────────────────────────┘
 ```
-```
-
-#### JWT Token
-
-```bash
-# Get token
-curl -X POST http://localhost:8080/auth/token \
-  -H "Content-Type: application/json" \
-  -d '{"username":"user","password":"pass"}'
-
-# Use token
-curl -H "Authorization: Bearer <token>" http://localhost:8080/api/v1/endpoint
-```
-
-### Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/v1/health` | GET | Health check |
-| `/api/v1/agents` | GET | List all agents |
-| `/api/v1/agents/:id` | GET | Get agent details |
-| `/api/v1/messages` | POST | Send inter-agent message |
-| `/ws` | WebSocket | Real-time communication |
 
 ## 🧪 Testing
 
-### Run All Tests
-
 ```bash
+# Run all tests
 cargo test
-```
 
-### Run Integration Tests
+# Run with verbose output
+cargo test -- --nocapture
 
-```bash
-cargo test --test integration_test
-```
-
-### Run with Coverage
-
-```bash
-cargo tarpaulin --out Html
+# Run specific test
+cargo test test_openai_provider
 ```
 
 ## 📊 Performance
-
-NewClaw is designed for high performance:
 
 - **Throughput**: 10,000+ requests/second
 - **Latency**: < 10ms p99
 - **Memory**: < 50MB baseline
 - **Startup**: < 100ms
-
-## 🔒 Security Features
-
-### API Key Authentication
-
-- Secure key validation
-- Scope-based permissions
-- Key expiration support
-
-### JWT Tokens
-
-- RS256 signing
-- Configurable expiration
-- Role-based claims
-
-### RBAC
-
-- Fine-grained permissions
-- Role inheritance
-- Resource-based access control
-
-### Audit Logging
-
-- Comprehensive action logging
-- Tamper-proof logs
-- Query and search capabilities
-
-### Rate Limiting
-
-- Token bucket algorithm
-- Per-user limits
-- Distributed rate limiting
-
-## 📝 Examples
-
-See the `examples/` directory for:
-
-- Basic HTTP server setup
-- WebSocket chat application
-- Inter-agent messaging
-- Security layer configuration
 
 ## 🤝 Contributing
 
@@ -253,22 +225,14 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- Built with [Tokio](https://tokio.rs/) async runtime
-- HTTP powered by [Axum](https://github.com/tokio-rs/axum)
-- Serialization with [Serde](https://serde.rs/)
+MIT License - see [LICENSE](LICENSE) file.
 
 ## 📞 Support
 
-- **Documentation**: [https://docs.newclaw.io](https://docs.newclaw.io)
-- **Issues**: [GitHub Issues](https://github.com/newclaw/newclaw/issues)
-- **Discord**: [Join our community](https://discord.gg/newclaw)
+- **Issues**: [GitHub Issues](https://github.com/fofo365/newclaw/issues)
 
 ---
 
-**Version**: v0.2.0  
-**Release Date**: 2026-03-08  
+**Version**: v0.3.1  
+**Release Date**: 2026-03-09  
 **Maintainer**: NewClaw Team
