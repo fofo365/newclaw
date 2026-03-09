@@ -1,6 +1,6 @@
 [package]
 name = "newclaw"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "Next-gen AI Agent framework - Rust performance + TypeScript plugins"
 license = "MIT"
