@@ -50,6 +50,21 @@ enum Commands {
         host: String,
     },
     
+    /// Start dashboard server
+    Dashboard {
+        /// Port to listen on
+        #[arg(short, long, default_value = "8080")]
+        port: u16,
+        
+        /// Host to bind to
+        #[arg(short, long, default_value = "0.0.0.0")]
+        host: String,
+    },
+    
+    /// Get dashboard pair code for authentication
+    #[command(name = "paircode")]
+    PairCode,
+    
     /// Generate example configuration file
     Config {
         /// Output file path (default: stdout)
@@ -154,6 +169,46 @@ async fn main() -> anyhow::Result<()> {
             newclaw::gateway::run_server(config).await?;
         }
         
+        Some(Commands::Dashboard { port, host }) => {
+            let dashboard_config = newclaw::dashboard::DashboardConfig {
+                enabled: true,
+                port,
+                auth_enabled: true,
+                ..Default::default()
+            };
+
+            println!("🚀 Starting NewClaw Dashboard...");
+            println!("   Address:  {}:{}", host, dashboard_config.port);
+            println!("   Auth:     Enabled (6-digit pair code)");
+            println!();
+
+            newclaw::dashboard::start_dashboard(dashboard_config).await?;
+        }
+        
+        Some(Commands::PairCode) => {
+            // 调用 Dashboard API 获取配对码
+            // 注意：CLI 命令是 `pair-code`（kebab-case）
+            match get_pair_code_from_api().await {
+                Ok(info) => {
+                    println!("🔐 Dashboard Pair Code:");
+                    println!();
+                    println!("   ⚡  {}", info.code);
+                    println!();
+                    println!("   Session ID:  {}", info.session_id);
+                    println!("   Expires at:  {}", info.expires_at.format("%Y-%m-%d %H:%M:%S UTC"));
+                    println!("   Dashboard:   {}", info.dashboard_url);
+                    println!();
+                    println!("💡 Use this code in the Dashboard login page");
+                }
+                Err(e) => {
+                    eprintln!("❌ Failed to get pair code: {}", e);
+                    eprintln!();
+                    eprintln!("💡 Make sure Dashboard is running:");
+                    eprintln!("   newclaw dashboard");
+                }
+            }
+        }
+        
         Some(Commands::Config { output }) => {
             let content = newclaw::config::generate_example_config();
             
@@ -203,15 +258,15 @@ async fn main() -> anyhow::Result<()> {
                         .map(|p| serde_json::from_str(&p))
                         .transpose()?
                         .unwrap_or(serde_json::json!({}));
-                    
+
                     println!("🔧 Executing tool: {}", name);
                     println!("   Params: {}", serde_json::to_string_pretty(&params_json)?);
                     println!();
-                    
+
                     // 创建工具注册表并执行
                     let registry = newclaw::tools::ToolRegistry::new();
                     register_default_tools(&registry).await;
-                    
+
                     match registry.execute(&name, params_json).await {
                         Ok(output) => {
                             if output.is_success() {
@@ -229,7 +284,7 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     }
-    
+
     Ok(())
 }
 
@@ -237,10 +292,37 @@ async fn main() -> anyhow::Result<()> {
 async fn register_default_tools(registry: &newclaw::tools::ToolRegistry) {
     use std::sync::Arc;
     use newclaw::tools::{ReadTool, WriteTool, EditTool, ExecTool, SearchTool};
-    
+
     registry.register(Arc::new(ReadTool)).await;
     registry.register(Arc::new(WriteTool)).await;
     registry.register(Arc::new(EditTool)).await;
     registry.register(Arc::new(ExecTool)).await;
     registry.register(Arc::new(SearchTool)).await;
+}
+
+/// 从 Dashboard API 获取配对码
+async fn get_pair_code_from_api() -> anyhow::Result<newclaw::dashboard::auth::PairCodeInfo> {
+    use reqwest::Client;
+
+    let client = Client::new();
+    let resp = client
+        .get("http://localhost:8080/api/auth/paircode")
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        anyhow::bail!("API returned error: {}", resp.status());
+    }
+
+    let data: serde_json::Value = resp.json().await?;
+
+    Ok(newclaw::dashboard::auth::PairCodeInfo {
+        code: data["code"].as_str().unwrap().to_string(),
+        session_id: data["session_id"].as_str().unwrap().to_string(),
+        created_at: chrono::Utc::now(), // API 不返回，使用当前时间
+        expires_at: chrono::DateTime::parse_from_rfc3339(data["expires_at"].as_str().unwrap())
+            .unwrap()
+            .with_timezone(&chrono::Utc),
+        dashboard_url: "http://localhost:8080".to_string(),
+    })
 }

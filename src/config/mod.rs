@@ -21,6 +21,9 @@ pub struct Config {
     
     #[serde(default)]
     pub tools: ToolsConfig,
+    
+    #[serde(default)]
+    pub feishu: FeishuConfig,
 }
 
 /// LLM 配置
@@ -400,6 +403,67 @@ impl Default for Config {
             llm: LLMConfig::default(),
             gateway: GatewayConfig::default(),
             tools: ToolsConfig::default(),
+            feishu: FeishuConfig::default(),
+        }
+    }
+}
+
+/// 飞书配置
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct FeishuConfig {
+    /// 飞书账号配置
+    #[serde(default)]
+    pub accounts: std::collections::HashMap<String, FeishuAccount>,
+}
+
+/// 飞书账号
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeishuAccount {
+    /// 应用 ID
+    pub app_id: String,
+    
+    /// 应用密钥
+    pub app_secret: String,
+    
+    /// 加密密钥
+    #[serde(default)]
+    pub encrypt_key: String,
+    
+    /// 验证令牌
+    #[serde(default)]
+    pub verification_token: String,
+    
+    /// 是否启用
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+    
+    /// 连接模式：websocket, longpoll
+    #[serde(default = "default_connection_mode")]
+    pub connection_mode: String,
+    
+    /// 域名
+    #[serde(default)]
+    pub domain: String,
+}
+
+fn default_enabled() -> bool {
+    true
+}
+
+fn default_connection_mode() -> String {
+    "websocket".to_string()
+}
+
+impl Default for FeishuAccount {
+    fn default() -> Self {
+        Self {
+            app_id: String::new(),
+            app_secret: String::new(),
+            encrypt_key: String::new(),
+            verification_token: String::new(),
+            enabled: true,
+            connection_mode: "websocket".to_string(),
+            domain: "feishu".to_string(),
         }
     }
 }
@@ -441,6 +505,7 @@ pub fn generate_example_config() -> String {
             ],
             timeout_secs: 60,
         },
+        feishu: FeishuConfig::default(),
     };
     
     toml::to_string_pretty(&config).unwrap()
