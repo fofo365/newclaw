@@ -1,5 +1,5 @@
 // NewClaw - Next-gen AI Agent framework
-// Version: 0.4.0
+// Version: 0.5.0
 
 // Core modules
 pub mod core;
@@ -24,6 +24,9 @@ pub mod feishu_websocket;
 
 // v0.4.0 - Dashboard Web UI
 pub mod dashboard;
+
+// v0.5.0 - Context Manager (智能上下文管理)
+pub mod context;
 
 // Re-export main types
 pub use core::AgentEngine;

@@ -50,6 +50,9 @@ base64 = "0.22"
 getrandom = "0.2"
 rand = "0.8"
 
+# Token counting (v0.5.0)
+tiktoken-rs = "0.5"
+
 # XML parsing for WeCom
 quick-xml = { version = "0.37", features = ["serialize"] }
 

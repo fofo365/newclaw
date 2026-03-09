@@ -95,6 +95,18 @@ pub enum MessageRole {
     Tool,
 }
 
+impl MessageRole {
+    /// 转换为字符串
+    pub fn as_str(&self) -> &str {
+        match self {
+            MessageRole::System => "system",
+            MessageRole::User => "user",
+            MessageRole::Assistant => "assistant",
+            MessageRole::Tool => "tool",
+        }
+    }
+}
+
 /// 工具定义
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDefinition {
