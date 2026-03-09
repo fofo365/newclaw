@@ -2,8 +2,7 @@
 // Requires "redis-support" feature
 
 use super::message::{AgentId, InterAgentMessage};
-use anyhow::{anyhow, Result};
-use redis::AsyncCommands;
+use anyhow::Result;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -18,9 +17,9 @@ impl RedisMessageQueue {
     pub async fn new(url: &str, agent_id: AgentId) -> Result<Self> {
         let client = redis::Client::open(url)?;
         
-        // Test connection
-        let mut conn = client.get_async_connection().await?;
-        let _: String = redis::cmd("PING").query_async(&mut conn).await?;
+        // Test connection using multiplexed async connection
+        let conn = client.get_multiplexed_async_connection().await?;
+        drop(conn); // Just testing connection
         
         Ok(Self {
             client: Arc::new(client),
@@ -30,11 +29,15 @@ impl RedisMessageQueue {
 
     /// Publish a message
     pub async fn publish(&self, msg: InterAgentMessage) -> Result<()> {
-        let mut conn = self.client.get_async_connection().await?;
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
         let channel = format!("agent:{}", msg.to);
         let payload = serde_json::to_string(&msg)?;
         
-        conn.publish(&channel, payload).await?;
+        redis::cmd("PUBLISH")
+            .arg(&channel)
+            .arg(&payload)
+            .query_async(&mut conn)
+            .await?;
         
         Ok(())
     }
@@ -46,7 +49,8 @@ impl RedisMessageQueue {
         let agent_id = self.agent_id.clone();
         
         tokio::spawn(async move {
-            let mut pubsub = match client.get_async_pubsub().await {
+            // Get async pubsub connection
+            let pubsub = match client.get_async_pubsub().await {
                 Ok(p) => p,
                 Err(e) => {
                     tracing::error!("Failed to create pubsub: {}", e);
@@ -55,6 +59,7 @@ impl RedisMessageQueue {
             };
             
             let channel = format!("agent:{}", agent_id);
+            let mut pubsub = pubsub;
             if let Err(e) = pubsub.subscribe(&channel).await {
                 tracing::error!("Failed to subscribe: {}", e);
                 return;
@@ -62,7 +67,7 @@ impl RedisMessageQueue {
             
             let mut stream = pubsub.on_message();
             
-            while let Some(msg) = stream.next().await {
+            while let Some(msg) = futures_util::StreamExt::next(&mut stream).await {
                 if let Ok(payload) = msg.get_payload::<String>() {
                     if let Ok(message) = serde_json::from_str::<InterAgentMessage>(&payload) {
                         if tx.send(message).is_err() {
@@ -83,7 +88,7 @@ impl RedisMessageQueue {
         let topic = topic.to_string();
         
         tokio::spawn(async move {
-            let mut pubsub = match client.get_async_pubsub().await {
+            let pubsub = match client.get_async_pubsub().await {
                 Ok(p) => p,
                 Err(e) => {
                     tracing::error!("Failed to create pubsub: {}", e);
@@ -91,6 +96,7 @@ impl RedisMessageQueue {
                 }
             };
             
+            let mut pubsub = pubsub;
             if let Err(e) = pubsub.subscribe(&topic).await {
                 tracing::error!("Failed to subscribe to topic: {}", e);
                 return;
@@ -98,7 +104,7 @@ impl RedisMessageQueue {
             
             let mut stream = pubsub.on_message();
             
-            while let Some(msg) = stream.next().await {
+            while let Some(msg) = futures_util::StreamExt::next(&mut stream).await {
                 if let Ok(payload) = msg.get_payload::<String>() {
                     if let Ok(message) = serde_json::from_str::<InterAgentMessage>(&payload) {
                         if tx.send(message).is_err() {
@@ -114,17 +120,21 @@ impl RedisMessageQueue {
 
     /// Publish to a topic
     pub async fn publish_topic(&self, topic: &str, msg: InterAgentMessage) -> Result<()> {
-        let mut conn = self.client.get_async_connection().await?;
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
         let payload = serde_json::to_string(&msg)?;
         
-        conn.publish(topic, payload).await?;
+        redis::cmd("PUBLISH")
+            .arg(topic)
+            .arg(&payload)
+            .query_async(&mut conn)
+            .await?;
         
         Ok(())
     }
 
     /// Health check
     pub async fn health_check(&self) -> Result<bool> {
-        let mut conn = self.client.get_async_connection().await?;
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
         let result: String = redis::cmd("PING").query_async(&mut conn).await?;
         Ok(result == "PONG")
     }

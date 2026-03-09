@@ -1,9 +1,10 @@
-// NewClaw v0.3.1 - 配置管理
+// NewClaw v0.4.0 - 配置管理
 //
 // 支持：
 // 1. TOML 配置文件
 // 2. 环境变量覆盖
 // 3. 默认值
+// 4. GLM 多区域支持
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -25,7 +26,7 @@ pub struct Config {
 /// LLM 配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LLMConfig {
-    /// 提供商: openai, claude, glm
+    /// 提供商: openai, claude, glm, glm-cn, glm-global, zai, zai-cn
     #[serde(default = "default_provider")]
     pub provider: String,
     
@@ -49,9 +50,9 @@ pub struct LLMConfig {
     #[serde(default)]
     pub claude: ProviderCredentials,
     
-    /// GLM 配置
+    /// GLM 配置 (支持多区域)
     #[serde(default)]
-    pub glm: ProviderCredentials,
+    pub glm: GlmProviderConfig,
 }
 
 impl Default for LLMConfig {
@@ -63,7 +64,7 @@ impl Default for LLMConfig {
             max_tokens: default_max_tokens(),
             openai: ProviderCredentials::default(),
             claude: ProviderCredentials::default(),
-            glm: ProviderCredentials::default(),
+            glm: GlmProviderConfig::default(),
         }
     }
 }
@@ -73,7 +74,22 @@ fn default_provider() -> String {
 }
 
 fn default_model() -> String {
-    std::env::var("LLM_MODEL").unwrap_or_else(|_| "glm-4".to_string())
+    // 根据提供商返回默认模型
+    let provider = std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "glm".to_string());
+    match provider.to_lowercase().as_str() {
+        "openai" => std::env::var("LLM_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string()),
+        "claude" => std::env::var("LLM_MODEL").unwrap_or_else(|_| "claude-3-5-sonnet-20241022".to_string()),
+        // GLM 和 z.ai (GLMCode) 的默认模型
+        "glm" | "glm-global" | "zhipu" | "zhipu-global" => 
+            std::env::var("LLM_MODEL").unwrap_or_else(|_| "glm-4".to_string()),
+        "glm-cn" | "zhipu-cn" | "bigmodel" => 
+            std::env::var("LLM_MODEL").unwrap_or_else(|_| "glm-4".to_string()),
+        "zai" | "z.ai" | "zai-global" | "z.ai-global" | "glmcode" | "glmcode-global" => 
+            std::env::var("LLM_MODEL").unwrap_or_else(|_| "glm-4.7".to_string()),
+        "zai-cn" | "z.ai-cn" | "glmcode-cn" => 
+            std::env::var("LLM_MODEL").unwrap_or_else(|_| "glm-4.7".to_string()),
+        _ => std::env::var("LLM_MODEL").unwrap_or_else(|_| "glm-4".to_string()),
+    }
 }
 
 fn default_temperature() -> f32 {
@@ -84,7 +100,7 @@ fn default_max_tokens() -> usize {
     4096
 }
 
-/// 提供商凭证
+/// 通用提供商凭证
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProviderCredentials {
     /// API Key（优先从环境变量读取）
@@ -94,6 +110,69 @@ pub struct ProviderCredentials {
     /// 自定义 Base URL
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
+}
+
+/// GLM Provider 配置 (支持多区域)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlmProviderConfig {
+    /// API Key（格式: id.secret）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    
+    /// 区域: china, international (默认 international)
+    #[serde(default = "default_glm_region")]
+    pub region: String,
+    
+    /// Provider 类型: glm, glmcode (默认 glm)
+    #[serde(default = "default_glm_type")]
+    pub provider_type: String,
+    
+    /// 自定义 Base URL (可选)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+}
+
+fn default_glm_region() -> String {
+    "international".to_string()
+}
+
+fn default_glm_type() -> String {
+    "glm".to_string()
+}
+
+impl Default for GlmProviderConfig {
+    fn default() -> Self {
+        Self {
+            api_key: None,
+            region: default_glm_region(),
+            provider_type: default_glm_type(),
+            base_url: None,
+        }
+    }
+}
+
+impl GlmProviderConfig {
+    /// 获取 GLM Base URL
+    pub fn get_base_url(&self) -> &'static str {
+        // 先检查自定义 URL
+        if let Some(ref url) = self.base_url {
+            // 返回静态字符串不太现实，但这个方法主要用于获取默认 URL
+            // 自定义 URL 会在创建 Provider 时直接使用
+        }
+        
+        // 根据区域和类型返回默认 URL
+        match (self.provider_type.as_str(), self.region.as_str()) {
+            ("glmcode", "china") | ("glmcode-cn", _) => 
+                "https://open.bigmodel.cn/api/coding/paas/v4",
+            ("glmcode", _) | ("glmcode-global", _) | ("glmcode-intl", _) => 
+                "https://api.z.ai/api/coding/paas/v4",
+            ("glm", "china") | ("glm-cn", _) | ("bigmodel", _) => 
+                "https://open.bigmodel.cn/api/paas/v4",
+            ("glm", _) | ("glm-global", _) | ("glm-intl", _) => 
+                "https://api.z.ai/api/paas/v4",
+            _ => "https://api.z.ai/api/paas/v4", // 默认国际区域
+        }
+    }
 }
 
 /// Gateway 配置
@@ -202,6 +281,14 @@ impl Config {
             self.llm.glm.api_key = Some(key);
         }
         
+        // GLM 区域配置
+        if let Ok(region) = std::env::var("GLM_REGION") {
+            self.llm.glm.region = region;
+        }
+        if let Ok(provider_type) = std::env::var("GLM_TYPE") {
+            self.llm.glm.provider_type = provider_type;
+        }
+        
         // Gateway
         if let Ok(host) = std::env::var("GATEWAY_HOST") {
             self.gateway.host = host;
@@ -215,10 +302,19 @@ impl Config {
     
     /// 获取当前提供商的 API Key
     pub fn get_api_key(&self) -> Result<String> {
+        let provider_lower = self.llm.provider.to_lowercase();
+        
+        // 检查是否为 GLM 系列 Provider
+        if is_glm_provider(&provider_lower) {
+            return self.llm.glm.api_key.clone().ok_or_else(|| anyhow::anyhow!(
+                "API key not found for GLM provider '{}'. Set environment variable: GLM_API_KEY",
+                self.llm.provider
+            ));
+        }
+        
         let key = match self.llm.provider.as_str() {
             "openai" => self.llm.openai.api_key.clone(),
             "claude" => self.llm.claude.api_key.clone(),
-            "glm" => self.llm.glm.api_key.clone(),
             other => return Err(anyhow::anyhow!("Unknown provider: {}", other)),
         };
         
@@ -231,17 +327,70 @@ impl Config {
     
     /// 获取默认模型
     pub fn get_model(&self) -> String {
-        if self.llm.model.is_empty() {
-            // 根据提供商返回默认模型
-            match self.llm.provider.as_str() {
-                "openai" => "gpt-4o-mini".to_string(),
-                "claude" => "claude-3-5-sonnet-20241022".to_string(),
-                "glm" => "glm-4".to_string(),
-                _ => "glm-4".to_string(),
-            }
-        } else {
-            self.llm.model.clone()
+        if !self.llm.model.is_empty() {
+            return self.llm.model.clone();
         }
+        
+        // 根据提供商返回默认模型
+        let provider_lower = self.llm.provider.to_lowercase();
+        match provider_lower.as_str() {
+            "openai" => "gpt-4o-mini".to_string(),
+            "claude" => "claude-3-5-sonnet-20241022".to_string(),
+            // GLM 系列
+            "glm" | "glm-global" | "zhipu" | "zhipu-global" => "glm-4".to_string(),
+            "glm-cn" | "zhipu-cn" | "bigmodel" => "glm-4".to_string(),
+            // z.ai / GLMCode 系列
+            "zai" | "z.ai" | "zai-global" | "z.ai-global" | "glmcode" | "glmcode-global" => "glm-4.7".to_string(),
+            "zai-cn" | "z.ai-cn" | "glmcode-cn" => "glm-4.7".to_string(),
+            _ => "glm-4".to_string(),
+        }
+    }
+    
+    /// 获取 GLM 配置（解析 provider 名称）
+    pub fn get_glm_config(&self) -> GlmProviderConfig {
+        let provider_lower = self.llm.provider.to_lowercase();
+        
+        // 从 provider 名称推断区域和类型
+        let (region, provider_type) = parse_glm_provider_name(&provider_lower);
+        
+        GlmProviderConfig {
+            api_key: self.llm.glm.api_key.clone(),
+            region: self.llm.glm.region.clone().is_empty()
+                .then(|| region.to_string())
+                .unwrap_or_else(|| self.llm.glm.region.clone()),
+            provider_type: self.llm.glm.provider_type.clone().is_empty()
+                .then(|| provider_type.to_string())
+                .unwrap_or_else(|| self.llm.glm.provider_type.clone()),
+            base_url: self.llm.glm.base_url.clone(),
+        }
+    }
+}
+
+/// 检查是否为 GLM 系列 Provider
+fn is_glm_provider(name: &str) -> bool {
+    matches!(
+        name,
+        "glm" | "glm-global" | "glm-cn" | "glm-intl" |
+        "zhipu" | "zhipu-global" | "zhipu-cn" |
+        "bigmodel" |
+        "zai" | "z.ai" | "zai-global" | "zai-cn" | "z.ai-global" | "z.ai-cn" |
+        "glmcode" | "glmcode-global" | "glmcode-cn" | "glmcode-intl"
+    )
+}
+
+/// 从 provider 名称解析区域和类型
+fn parse_glm_provider_name(name: &str) -> (&'static str, &'static str) {
+    match name {
+        // GLM 中国
+        "glm-cn" | "zhipu-cn" | "bigmodel" => ("china", "glm"),
+        // GLM 国际
+        "glm" | "glm-global" | "glm-intl" | "zhipu" | "zhipu-global" => ("international", "glm"),
+        // GLMCode / z.ai 中国
+        "zai-cn" | "z.ai-cn" | "glmcode-cn" | "glmcode-china" => ("china", "glmcode"),
+        // GLMCode / z.ai 国际
+        "zai" | "z.ai" | "zai-global" | "z.ai-global" | "glmcode" | "glmcode-global" | "glmcode-intl" => ("international", "glmcode"),
+        // 默认
+        _ => ("international", "glm"),
     }
 }
 
@@ -259,8 +408,8 @@ impl Default for Config {
 pub fn generate_example_config() -> String {
     let config = Config {
         llm: LLMConfig {
-            provider: "openai".to_string(),
-            model: "gpt-4o-mini".to_string(),
+            provider: "glm".to_string(),
+            model: "glm-4".to_string(),
             temperature: 0.7,
             max_tokens: 4096,
             openai: ProviderCredentials {
@@ -271,8 +420,10 @@ pub fn generate_example_config() -> String {
                 api_key: Some("sk-ant-...".to_string()),
                 base_url: None,
             },
-            glm: ProviderCredentials {
-                api_key: Some("...".to_string()),
+            glm: GlmProviderConfig {
+                api_key: Some("your-id.your-secret".to_string()),
+                region: "international".to_string(),
+                provider_type: "glm".to_string(),
                 base_url: None,
             },
         },
@@ -302,9 +453,25 @@ mod tests {
     #[test]
     fn test_default_config() {
         let config = Config::default();
-        // Check that LLMConfig has proper defaults
-        assert_eq!(config.llm.temperature, 0.7); // default_temperature
-        assert_eq!(config.llm.max_tokens, 4096); // default_max_tokens
+        assert_eq!(config.llm.temperature, 0.7);
+        assert_eq!(config.llm.max_tokens, 4096);
+    }
+    
+    #[test]
+    fn test_glm_provider_detection() {
+        assert!(is_glm_provider("glm"));
+        assert!(is_glm_provider("glm-cn"));
+        assert!(is_glm_provider("z.ai"));
+        assert!(is_glm_provider("glmcode"));
+        assert!(!is_glm_provider("openai"));
+    }
+    
+    #[test]
+    fn test_parse_glm_provider_name() {
+        assert_eq!(parse_glm_provider_name("glm"), ("international", "glm"));
+        assert_eq!(parse_glm_provider_name("glm-cn"), ("china", "glm"));
+        assert_eq!(parse_glm_provider_name("z.ai"), ("international", "glmcode"));
+        assert_eq!(parse_glm_provider_name("zai-cn"), ("china", "glmcode"));
     }
     
     #[test]

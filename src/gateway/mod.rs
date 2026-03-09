@@ -1,7 +1,7 @@
-// Web Gateway for NewClaw - v0.3.1
+// Web Gateway for NewClaw - v0.4.0
 //
 // 支持：
-// 1. 多 LLM Provider (OpenAI, Claude, GLM)
+// 1. 多 LLM Provider (OpenAI, Claude, GLM 多区域)
 // 2. 工具执行引擎集成
 // 3. 配置文件支持
 // 4. 向后兼容环境变量
@@ -19,7 +19,12 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::config::Config;
-use crate::llm::{LLMProviderV3, OpenAIProvider, ClaudeProvider, GLMProvider, ChatRequest, Message, MessageRole, TokenUsage};
+use crate::llm::{
+    LLMProviderV3, OpenAIProvider, ClaudeProvider, 
+    GlmProvider, GlmConfig, GlmRegion, GlmProviderType,
+    create_glm_provider, is_glm_alias,
+    ChatRequest, Message, MessageRole, TokenUsage
+};
 use crate::tools::{ToolRegistry, ReadTool, WriteTool, EditTool, ExecTool, SearchTool};
 use std::collections::HashMap;
 
@@ -52,17 +57,23 @@ impl GatewayState {
 
 /// 创建 LLM Provider
 fn create_llm_provider(config: &Config) -> anyhow::Result<Box<dyn LLMProviderV3>> {
-    let provider = config.llm.provider.as_str();
+    let provider = config.llm.provider.to_lowercase();
     let api_key = config.get_api_key()?;
+    let model = config.get_model();
     
-    match provider {
+    // 检查是否为 GLM 系列 Provider
+    if is_glm_alias(&provider) {
+        return create_glm_provider_from_config(&api_key, &provider, model.as_str(), config);
+    }
+    
+    match provider.as_str() {
         "openai" => {
             let mut p = OpenAIProvider::new(api_key);
             if let Some(base_url) = &config.llm.openai.base_url {
                 p = p.with_base_url(base_url.clone());
             }
-            p = p.with_default_model(config.get_model());
-            tracing::info!("Using OpenAI provider with model: {}", config.get_model());
+            p = p.with_default_model(model.clone());
+            tracing::info!("Using OpenAI provider with model: {}", model);
             Ok(Box::new(p))
         }
         "claude" => {
@@ -70,107 +81,67 @@ fn create_llm_provider(config: &Config) -> anyhow::Result<Box<dyn LLMProviderV3>
             if let Some(base_url) = &config.llm.claude.base_url {
                 p = p.with_base_url(base_url.clone());
             }
-            p = p.with_default_model(config.get_model());
-            tracing::info!("Using Claude provider with model: {}", config.get_model());
-            Ok(Box::new(p))
-        }
-        "glm" => {
-            // GLM 使用旧的 LegacyLLMProvider，需要包装
-            tracing::info!("Using GLM provider with model: {}", config.get_model());
-            let p = GLMProviderWrapper::new(api_key, config.get_model());
+            p = p.with_default_model(model.clone());
+            tracing::info!("Using Claude provider with model: {}", model);
             Ok(Box::new(p))
         }
         other => {
-            Err(anyhow::anyhow!("Unknown LLM provider: {}. Supported: openai, claude, glm", other))
+            Err(anyhow::anyhow!(
+                "Unknown LLM provider: {}. Supported: openai, claude, glm, glm-cn, glm-global, zai, zai-cn, z.ai",
+                other
+            ))
         }
     }
 }
 
-/// GLM Provider 包装器（适配 LLMProviderV3 trait）
-struct GLMProviderWrapper {
-    inner: GLMProvider,
-    model: String,
-}
-
-impl GLMProviderWrapper {
-    fn new(api_key: String, model: String) -> Self {
-        Self {
-            inner: GLMProvider::new(api_key),
-            model,
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl LLMProviderV3 for GLMProviderWrapper {
-    fn name(&self) -> &str {
-        "glm"
-    }
+/// 从配置创建 GLM Provider（支持多区域）
+fn create_glm_provider_from_config(
+    api_key: &str,
+    provider_name: &str,
+    model: &str,
+    config: &Config,
+) -> anyhow::Result<Box<dyn LLMProviderV3>> {
+    let glm_config = config.get_glm_config();
     
-    async fn chat(&self, req: ChatRequest) -> Result<crate::llm::ChatResponse, crate::llm::LLMError> {
-        // 转换请求格式
-        let glm_messages: Vec<crate::llm::LLMMessage> = req.messages.into_iter()
-            .map(|m| crate::llm::LLMMessage {
-                role: match m.role {
-                    MessageRole::System => "system".to_string(),
-                    MessageRole::User => "user".to_string(),
-                    MessageRole::Assistant => "assistant".to_string(),
-                    MessageRole::Tool => "tool".to_string(),
-                },
-                content: m.content,
-            })
-            .collect();
-        
-        let glm_req = crate::llm::LLMRequest {
-            model: req.model.clone(),
-            messages: glm_messages,
-            temperature: req.temperature,
-            max_tokens: req.max_tokens,
-        };
-        
-        // 调用 GLM
-        use crate::llm::LegacyLLMProvider;
-        let resp = self.inner.chat(&glm_req).await
-            .map_err(|e| crate::llm::LLMError::ApiError(e.to_string()))?;
-        
-        // 转换响应格式
-        Ok(crate::llm::ChatResponse {
-            message: Message {
-                role: MessageRole::Assistant,
-                content: resp.content,
-                tool_calls: None,
-                tool_call_id: None,
-            },
-            usage: TokenUsage {
-                prompt_tokens: resp.tokens_used / 2, // 估算
-                completion_tokens: resp.tokens_used / 2,
-                total_tokens: resp.tokens_used,
-            },
-            finish_reason: Some("stop".to_string()),
-            model: resp.model,
+    // 解析区域
+    let region = match glm_config.region.to_lowercase().as_str() {
+        "china" | "cn" | "中国" => GlmRegion::China,
+        "international" | "intl" | "global" | "国际" => GlmRegion::International,
+        _ => GlmRegion::International,
+    };
+    
+    // 解析 Provider 类型
+    let provider_type = match glm_config.provider_type.to_lowercase().as_str() {
+        "glmcode" | "coding" => GlmProviderType::GlmCode,
+        _ => GlmProviderType::Glm,
+    };
+    
+    tracing::info!(
+        "Using GLM provider '{}' with region: {:?}, type: {:?}, model: {}",
+        provider_name, region, provider_type, model
+    );
+    
+    // 创建 GLM Provider
+    let provider = if let Some(ref base_url) = glm_config.base_url {
+        // 使用自定义 Base URL
+        GlmProvider::with_config(api_key.to_string(), GlmConfig {
+            region,
+            provider_type,
+            model: model.to_string(),
+            temperature: config.llm.temperature,
+            max_tokens: config.llm.max_tokens,
+        }).set_base_url(base_url.clone())
+    } else {
+        GlmProvider::with_config(api_key.to_string(), GlmConfig {
+            region,
+            provider_type,
+            model: model.to_string(),
+            temperature: config.llm.temperature,
+            max_tokens: config.llm.max_tokens,
         })
-    }
+    };
     
-    async fn chat_stream(
-        &self,
-        _req: ChatRequest,
-    ) -> Result<std::pin::Pin<Box<dyn futures::Stream<Item = Result<String, crate::llm::LLMError>> + Send>>, crate::llm::LLMError> {
-        Err(crate::llm::LLMError::ApiError("GLM streaming not implemented".to_string()))
-    }
-    
-    fn count_tokens(&self, text: &str) -> usize {
-        // 简单估算
-        let chinese_chars = text.chars().filter(|c| {
-            let cp = *c as u32;
-            (0x4E00..=0x9FFF).contains(&cp)
-        }).count();
-        let total = text.chars().count();
-        (chinese_chars / 2) + ((total - chinese_chars) / 4)
-    }
-    
-    async fn validate(&self) -> Result<bool, crate::llm::LLMError> {
-        Ok(true) // 简化实现
-    }
+    Ok(Box::new(provider))
 }
 
 /// 注册默认工具
@@ -203,12 +174,49 @@ pub fn create_router(state: Arc<GatewayState>) -> Router {
         .route("/chat", post(chat_handler))
         .route("/tools", get(list_tools))
         .route("/tools/execute", post(execute_tool))
+        .route("/providers", get(list_providers))
         .layer(Extension(state))
 }
 
 /// 健康检查
 async fn health_check() -> &'static str {
     "OK"
+}
+
+/// 列出支持的 Provider
+async fn list_providers() -> Json<Vec<ProviderInfo>> {
+    Json(vec![
+        ProviderInfo {
+            name: "openai".to_string(),
+            display_name: "OpenAI".to_string(),
+            models: vec!["gpt-4o-mini".to_string(), "gpt-4o".to_string()],
+        },
+        ProviderInfo {
+            name: "claude".to_string(),
+            display_name: "Claude (Anthropic)".to_string(),
+            models: vec!["claude-3-5-sonnet-20241022".to_string()],
+        },
+        ProviderInfo {
+            name: "glm".to_string(),
+            display_name: "GLM (International)".to_string(),
+            models: vec!["glm-4".to_string(), "glm-4-flash".to_string()],
+        },
+        ProviderInfo {
+            name: "glm-cn".to_string(),
+            display_name: "GLM (China)".to_string(),
+            models: vec!["glm-4".to_string(), "glm-4-flash".to_string()],
+        },
+        ProviderInfo {
+            name: "z.ai".to_string(),
+            display_name: "z.ai / GLMCode (International)".to_string(),
+            models: vec!["glm-4.7".to_string(), "glm-5".to_string()],
+        },
+        ProviderInfo {
+            name: "zai-cn".to_string(),
+            display_name: "z.ai / GLMCode (China)".to_string(),
+            models: vec!["glm-4.7".to_string(), "glm-5".to_string()],
+        },
+    ])
 }
 
 /// 聊天处理
@@ -298,6 +306,13 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct ProviderInfo {
+    pub name: String,
+    pub display_name: String,
+    pub models: Vec<String>,
+}
+
 impl IntoResponse for ErrorResponse {
     fn into_response(self) -> Response {
         let body = serde_json::to_string(&self).unwrap();
@@ -309,6 +324,11 @@ impl IntoResponse for ErrorResponse {
 pub async fn run_server(config: Config) -> anyhow::Result<()> {
     let host = config.gateway.host.clone();
     let port = config.gateway.port;
+    
+    // 显示当前配置信息
+    tracing::info!("🦀 NewClaw v0.4.0 Gateway starting...");
+    tracing::info!("   Provider: {}", config.llm.provider);
+    tracing::info!("   Model: {}", config.get_model());
     
     let state = Arc::new(GatewayState::from_config(config).await?);
     let app = create_router(state);
@@ -323,6 +343,5 @@ pub async fn run_server(config: Config) -> anyhow::Result<()> {
 }
 
 // 保留向后兼容的类型别名
-// Re-export for backward compatibility (different names to avoid conflict)
 pub type LegacyChatRequest = ChatRequestJson;
 pub type LegacyChatResponse = ChatResponseJson;

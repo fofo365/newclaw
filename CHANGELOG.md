@@ -3,7 +3,23 @@
 All notable changes to NewClaw will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.3.2] - 2026-03-09
+
+### Fixed
+- **Redis API compatibility**: Fixed Redis integration to work with redis crate v0.27
+  - Updated `get_async_connection()` → `get_multiplexed_async_connection()`
+  - Replaced `AsyncCommands` trait with direct `redis::cmd()` calls
+  - Added `aio` and `tokio-comp` features to redis dependency
+
+- **Missing ring crate**: Added `ring` dependency for GLM JWT token generation
+
+- **Removed unused import**: Cleaned up `anyhow` import in message_queue.rs
+
+### Technical Details
+- Redis dependency now includes: `features = ["aio", "tokio-comp"]`
+- All 109 tests pass with Redis support enabled
 
 ## [0.3.1] - 2026-03-09
 

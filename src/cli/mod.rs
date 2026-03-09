@@ -1,7 +1,7 @@
-// CLI module for NewClaw - v0.3.1
+// CLI module for NewClaw - v0.4.0
 //
 // 支持：
-// 1. 多 LLM Provider (OpenAI, Claude, GLM)
+// 1. 多 LLM Provider (OpenAI, Claude, GLM 多区域)
 // 2. 命令行参数配置
 // 3. 配置文件支持
 // 4. 工具执行
@@ -9,7 +9,10 @@
 use std::io::{self, Write};
 use clap::Parser;
 use crate::config::Config;
-use crate::llm::{LLMProviderV3, OpenAIProvider, ClaudeProvider, ChatRequest, Message, MessageRole, TokenUsage};
+use crate::llm::{
+    LLMProviderV3, OpenAIProvider, ClaudeProvider, GlmProvider, GlmConfig, GlmRegion, GlmProviderType,
+    ChatRequest, Message, MessageRole, TokenUsage, is_glm_alias, create_glm_provider
+};
 use crate::tools::ToolRegistry;
 
 /// NewClaw CLI
@@ -17,13 +20,17 @@ use crate::tools::ToolRegistry;
 #[command(name = "newclaw")]
 #[command(about = "Next-gen AI Agent framework", long_about = None)]
 pub struct CliArgs {
-    /// LLM Provider: openai, claude, glm
-    #[arg(short, long, value_parser = ["openai", "claude", "glm"])]
+    /// LLM Provider: openai, claude, glm, glm-cn, glm-global, z.ai, zai-cn
+    #[arg(short, long)]
     pub provider: Option<String>,
     
     /// Model to use
     #[arg(short, long)]
     pub model: Option<String>,
+    
+    /// GLM Region: china, international (for GLM providers)
+    #[arg(long)]
+    pub glm_region: Option<String>,
     
     /// Path to config file
     #[arg(short, long)]
@@ -44,6 +51,10 @@ pub struct CliArgs {
     /// Generate example config
     #[arg(long)]
     pub generate_config: bool,
+    
+    /// List supported providers
+    #[arg(long)]
+    pub list_providers: bool,
 }
 
 pub async fn run_cli() -> anyhow::Result<()> {
@@ -52,6 +63,12 @@ pub async fn run_cli() -> anyhow::Result<()> {
     // 生成示例配置
     if args.generate_config {
         println!("{}", crate::config::generate_example_config());
+        return Ok(());
+    }
+    
+    // 列出支持的 Provider
+    if args.list_providers {
+        print_providers();
         return Ok(());
     }
     
@@ -73,6 +90,9 @@ pub async fn run_cli() -> anyhow::Result<()> {
     }
     if let Some(model) = &args.model {
         config.llm.model = model.clone();
+    }
+    if let Some(region) = &args.glm_region {
+        config.llm.glm.region = region.clone();
     }
     if args.gateway || args.port != 3000 {
         config.gateway.port = args.port;
@@ -97,6 +117,13 @@ async fn run_interactive_mode(config: &Config) -> anyhow::Result<()> {
     println!("   Provider: {}", config.llm.provider);
     println!("   Model:    {}", config.get_model());
     
+    // 显示 GLM 区域信息
+    if is_glm_alias(&config.llm.provider) {
+        let glm_config = config.get_glm_config();
+        println!("   Region:   {}", glm_config.region);
+        println!("   Type:     {}", glm_config.provider_type);
+    }
+    
     // 检查 API Key
     let api_key = config.get_api_key();
     match &api_key {
@@ -111,7 +138,11 @@ async fn run_interactive_mode(config: &Config) -> anyhow::Result<()> {
         Err(e) => {
             println!("   API Key:  ⚠️  {}", e);
             println!("\n💡 Set your API key:");
-            println!("   export {}_API_KEY=your-key-here", config.llm.provider.to_uppercase());
+            if is_glm_alias(&config.llm.provider) {
+                println!("   export GLM_API_KEY=your-id.your-secret");
+            } else {
+                println!("   export {}_API_KEY=your-key-here", config.llm.provider.to_uppercase());
+            }
             println!("\n   Or create a config.toml file:");
             println!("   newclaw --generate-config > config.toml");
             println!("\nRunning in mock mode...\n");
@@ -164,6 +195,10 @@ async fn run_interactive_mode(config: &Config) -> anyhow::Result<()> {
                 print_config(config);
                 continue;
             }
+            "providers" => {
+                print_providers();
+                continue;
+            }
             "clear" => {
                 print!("\x1B[2J\x1B[1;1H"); // ANSI clear screen
                 continue;
@@ -188,8 +223,44 @@ async fn run_interactive_mode(config: &Config) -> anyhow::Result<()> {
 /// 创建 LLM Provider
 fn create_provider(config: &Config) -> anyhow::Result<Box<dyn LLMProviderV3>> {
     let api_key = config.get_api_key()?;
+    let provider_lower = config.llm.provider.to_lowercase();
     
-    match config.llm.provider.as_str() {
+    // 检查是否为 GLM 系列
+    if is_glm_alias(&provider_lower) {
+        let glm_config = config.get_glm_config();
+        
+        let region = match glm_config.region.to_lowercase().as_str() {
+            "china" | "cn" | "中国" => GlmRegion::China,
+            _ => GlmRegion::International,
+        };
+        
+        let provider_type = match glm_config.provider_type.to_lowercase().as_str() {
+            "glmcode" | "coding" => GlmProviderType::GlmCode,
+            _ => GlmProviderType::Glm,
+        };
+        
+        let provider = if let Some(ref base_url) = glm_config.base_url {
+            GlmProvider::with_config(api_key, GlmConfig {
+                region,
+                provider_type,
+                model: config.get_model(),
+                temperature: config.llm.temperature,
+                max_tokens: config.llm.max_tokens,
+            }).set_base_url(base_url.clone())
+        } else {
+            GlmProvider::with_config(api_key, GlmConfig {
+                region,
+                provider_type,
+                model: config.get_model(),
+                temperature: config.llm.temperature,
+                max_tokens: config.llm.max_tokens,
+            })
+        };
+        
+        return Ok(Box::new(provider));
+    }
+    
+    match provider_lower.as_str() {
         "openai" => {
             let mut p = OpenAIProvider::new(api_key);
             if let Some(base_url) = &config.llm.openai.base_url {
@@ -206,105 +277,12 @@ fn create_provider(config: &Config) -> anyhow::Result<Box<dyn LLMProviderV3>> {
             p = p.with_default_model(config.get_model());
             Ok(Box::new(p))
         }
-        "glm" => {
-            // GLM 暂时使用 mock 实现
-            println!("⚠️  GLM provider in CLI uses simplified implementation");
-            Ok(Box::new(GLMProvider::new(api_key)))
-        }
         other => {
-            Err(anyhow::anyhow!("Unknown provider: {}", other))
+            Err(anyhow::anyhow!(
+                "Unknown provider: {}. Use --list-providers to see supported providers.",
+                other
+            ))
         }
-    }
-}
-
-/// GLM 简化实现
-struct GLMProvider {
-    api_key: String,
-}
-
-impl GLMProvider {
-    fn new(api_key: String) -> Self {
-        Self { api_key }
-    }
-}
-
-#[async_trait::async_trait]
-impl LLMProviderV3 for GLMProvider {
-    fn name(&self) -> &str {
-        "glm"
-    }
-    
-    async fn chat(&self, req: ChatRequest) -> Result<crate::llm::ChatResponse, crate::llm::LLMError> {
-        // 转换并调用 GLM
-        let client = reqwest::Client::new();
-        let body = serde_json::json!({
-            "model": req.model,
-            "messages": req.messages.iter().map(|m| serde_json::json!({
-                "role": match m.role {
-                    MessageRole::System => "system",
-                    MessageRole::User => "user",
-                    MessageRole::Assistant => "assistant",
-                    MessageRole::Tool => "tool",
-                },
-                "content": m.content
-            })).collect::<Vec<_>>(),
-            "temperature": req.temperature,
-            "max_tokens": req.max_tokens,
-        });
-        
-        let resp = client
-            .post("https://open.bigmodel.cn/api/paas/v4/chat/completions")
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| crate::llm::LLMError::NetworkError(e.to_string()))?;
-        
-        let status = resp.status();
-        let text = resp.text().await.unwrap_or_default();
-        
-        if !status.is_success() {
-            return Err(crate::llm::LLMError::ApiError(text));
-        }
-        
-        let json: serde_json::Value = serde_json::from_str(&text)
-            .map_err(|e| crate::llm::LLMError::SerializationError(e.to_string()))?;
-        
-        let content = json["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
-        
-        Ok(crate::llm::ChatResponse {
-            message: Message {
-                role: MessageRole::Assistant,
-                content,
-                tool_calls: None,
-                tool_call_id: None,
-            },
-            usage: TokenUsage {
-                prompt_tokens: 0,
-                completion_tokens: 0,
-                total_tokens: json["usage"]["total_tokens"].as_u64().unwrap_or(0) as usize,
-            },
-            finish_reason: json["choices"][0]["finish_reason"].as_str().map(|s| s.to_string()),
-            model: req.model,
-        })
-    }
-    
-    async fn chat_stream(
-        &self,
-        _req: ChatRequest,
-    ) -> Result<std::pin::Pin<Box<dyn futures::Stream<Item = Result<String, crate::llm::LLMError>> + Send>>, crate::llm::LLMError> {
-        Err(crate::llm::LLMError::ApiError("Streaming not implemented".to_string()))
-    }
-    
-    fn count_tokens(&self, text: &str) -> usize {
-        text.len() / 4
-    }
-    
-    async fn validate(&self) -> Result<bool, crate::llm::LLMError> {
-        Ok(true)
     }
 }
 
@@ -334,10 +312,15 @@ async fn process_chat(
         Ok(response.message.content)
     } else {
         // Mock 模式
+        let env_hint = if is_glm_alias(&config.llm.provider) {
+            "GLM_API_KEY"
+        } else {
+            &format!("{}_API_KEY", config.llm.provider.to_uppercase())
+        };
+        
         Ok(format!(
-            "[Mock Mode] Processed: {}\n\nSet {}_API_KEY to enable real responses.",
-            input,
-            config.llm.provider.to_uppercase()
+            "[Mock Mode] Processed: {}\n\nSet {} to enable real responses.",
+            input, env_hint
         ))
     }
 }
@@ -376,6 +359,44 @@ fn print_config(config: &Config) {
     println!("  Temperature: {}", config.llm.temperature);
     println!("  Max Tokens:  {}", config.llm.max_tokens);
     println!("  Gateway:     {}:{}", config.gateway.host, config.gateway.port);
+    
+    if is_glm_alias(&config.llm.provider) {
+        let glm_config = config.get_glm_config();
+        println!("\n  GLM Configuration:");
+        println!("    Region: {}", glm_config.region);
+        println!("    Type:   {}", glm_config.provider_type);
+        if let Some(ref url) = glm_config.base_url {
+            println!("    URL:    {}", url);
+        }
+    }
+    
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+}
+
+/// 打印支持的 Provider
+fn print_providers() {
+    println!("\n🔌 Supported Providers:");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("\n  OpenAI Compatible:");
+    println!("    openai       - OpenAI GPT models");
+    println!("    claude       - Anthropic Claude models");
+    println!("\n  GLM / Zhipu (Multi-Region):");
+    println!("    glm          - GLM International (api.z.ai)");
+    println!("    glm-global   - GLM International (alias)");
+    println!("    glm-cn       - GLM China (open.bigmodel.cn)");
+    println!("    bigmodel     - GLM China (alias)");
+    println!("\n  GLMCode / z.ai (Coding Models):");
+    println!("    z.ai         - z.ai International (api.z.ai/coding)");
+    println!("    zai          - z.ai International (alias)");
+    println!("    zai-cn       - z.ai China (open.bigmodel.cn/coding)");
+    println!("    glmcode      - GLMCode International (alias)");
+    println!("    glmcode-cn   - GLMCode China (alias)");
+    println!("\n  📝 Environment Variables:");
+    println!("    LLM_PROVIDER    - Set provider");
+    println!("    LLM_MODEL       - Set model");
+    println!("    GLM_API_KEY     - GLM API key (format: id.secret)");
+    println!("    GLM_REGION      - GLM region (china/international)");
+    println!("    GLM_TYPE        - GLM type (glm/glmcode)");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 }
 
@@ -383,17 +404,27 @@ fn print_config(config: &Config) {
 fn print_help() {
     println!("\n📖 Commands:");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("  help     - Show this help message");
-    println!("  tools    - List available tools");
-    println!("  config   - Show current configuration");
-    println!("  clear    - Clear the screen");
-    println!("  exit     - Exit the program");
-    println!("  quit     - Exit the program");
+    println!("  help      - Show this help message");
+    println!("  tools     - List available tools");
+    println!("  config    - Show current configuration");
+    println!("  providers - List supported providers");
+    println!("  clear     - Clear the screen");
+    println!("  exit      - Exit the program");
+    println!("  quit      - Exit the program");
     println!("\n📝 Environment Variables:");
-    println!("  LLM_PROVIDER    - Provider: openai, claude, glm");
+    println!("  LLM_PROVIDER    - Provider (openai, claude, glm, glm-cn, z.ai, etc.)");
     println!("  LLM_MODEL       - Model name");
+    println!("  GLM_API_KEY     - GLM API key (format: id.secret)");
+    println!("  GLM_REGION      - GLM region (china/international)");
     println!("  OPENAI_API_KEY  - OpenAI API key");
     println!("  ANTHROPIC_API_KEY - Claude API key");
-    println!("  GLM_API_KEY     - GLM API key");
+    println!("\n🔧 CLI Options:");
+    println!("  --provider NAME   - Set provider");
+    println!("  --model NAME      - Set model");
+    println!("  --glm-region REGION - Set GLM region (china/international)");
+    println!("  --gateway         - Run in gateway mode");
+    println!("  --port PORT       - Gateway port (default: 3000)");
+    println!("  --generate-config - Generate example config.toml");
+    println!("  --list-providers  - List supported providers");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 }

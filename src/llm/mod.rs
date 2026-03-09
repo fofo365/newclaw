@@ -1,10 +1,12 @@
 // LLM Integration Module
 
-// v0.3.0 - 新的多 LLM 架构
+// v0.4.0 - 多 LLM 架构 + GLM 多区域支持
 pub mod provider;
 pub mod openai;
 pub mod claude;
+pub mod glm;
 pub mod streaming;
+pub mod models;
 
 // Re-exports
 pub use provider::{LLMProviderV3, ChatRequest, ChatResponse, Message, MessageRole, LLMError, ModelStrategy, LLMConfig, ProviderType, TokenUsage};
@@ -12,8 +14,21 @@ pub use openai::OpenAIProvider;
 pub use claude::ClaudeProvider;
 pub use streaming::{StreamChunk, StreamingResponse, SSEEvent, stream_llm_response, WebSocketStream, FeishuStreamAdapter};
 
+// GLM 多区域 Provider
+pub use glm::{
+    GlmProvider, GlmConfig, GlmRegion, GlmProviderType,
+    is_glm_alias, is_glm_global_alias, is_glm_cn_alias,
+    is_zai_global_alias, is_zai_cn_alias, glm_base_url, create_glm_provider,
+};
+
+// 模型数据
+pub use models::{
+    ModelInfo, GLM_MODELS, OPENAI_MODELS, CLAUDE_MODELS,
+    get_all_models, get_models_by_provider, find_model, get_default_model,
+};
+
 // 向后兼容：旧的 LLMProvider 导出
-pub use GLMProvider as LLMProvider;
+pub use LegacyGLMProvider as LLMProvider;
 
 // Legacy v0.2.0 LLM 接口（保留向后兼容）
 use async_trait::async_trait;
@@ -52,14 +67,16 @@ pub trait LegacyLLMProvider: Send + Sync {
     }
 }
 
-/// GLM Provider (v0.2.0 实现，保留向后兼容)
-pub struct GLMProvider {
+/// Legacy GLM Provider (v0.2.0 实现，保留向后兼容)
+/// 
+/// 推荐使用新的 GlmProvider，支持多区域
+pub struct LegacyGLMProvider {
     #[allow(dead_code)]
     api_key: String,
     base_url: String,
 }
 
-impl GLMProvider {
+impl LegacyGLMProvider {
     pub fn new(api_key: String) -> Self {
         Self {
             api_key,
@@ -73,7 +90,7 @@ impl GLMProvider {
 }
 
 #[async_trait]
-impl LegacyLLMProvider for GLMProvider {
+impl LegacyLLMProvider for LegacyGLMProvider {
     fn name(&self) -> &str {
         "glm"
     }

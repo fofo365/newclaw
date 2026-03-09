@@ -1,6 +1,6 @@
 [package]
 name = "newclaw"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 description = "Next-gen AI Agent framework - Rust performance + TypeScript plugins"
 license = "MIT"
@@ -50,8 +50,11 @@ futures-util = "0.3"
 # JWT
 jsonwebtoken = "9"
 
+# HMAC for GLM JWT
+ring = "0.17"
+
 # Redis (optional)
-redis = { version = "0.27", optional = true }
+redis = { version = "0.27", optional = true, features = ["aio", "tokio-comp"] }
 
 # Password hashing
 password-hash = "0.5"
