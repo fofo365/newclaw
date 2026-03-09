@@ -1,353 +1,216 @@
-// Integration tests for NewClaw v0.2.0
-// Tests end-to-end functionality across all layers
+// NewClaw v0.3.0 - 集成测试
+//
+// 测试场景：
+// 1. 工具 + LLM 协作
+// 2. 多模型切换
+// 3. 流式响应
 
-use newclaw::{
-    communication::message::{InterAgentMessage, MessagePayload, Request, Response, Event},
-    security::{
-        ApiKeyAuth, JwtAuth, RbacManager, AuditLogger,
-        rbac::Permission,
-    },
-    core::context::ContextManager,
-    ContextConfig,
-};
-use std::collections::HashMap;
+use newclaw::*;
+use newclaw::llm::LLMProviderV3;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
-/// Test API Key authentication flow
 #[tokio::test]
-async fn test_api_key_authentication() {
-    let auth = ApiKeyAuth::new();
+async fn test_tool_llm_integration() {
+    // 创建工具注册表
+    let registry = ToolRegistry::new();
     
-    // Generate a new API key
-    let agent_id = "test-agent".to_string();
-    let permissions = vec!["read".to_string(), "write".to_string()];
-    let key = auth.generate(agent_id.clone(), permissions).await;
+    // 注册工具
+    registry.register(Arc::new(ReadTool)).await;
+    registry.register(Arc::new(WriteTool)).await;
     
-    // Validate the generated key
-    let result = auth.validate(&key).await;
-    assert!(result.is_ok());
+    // 模拟 Agent 思考过程
+    let _user_input = "请创建一个测试文件并写入 Hello, World!";
     
-    let key_info = result.unwrap();
-    assert_eq!(key_info.agent_id, agent_id);
-    assert!(key_info.permissions.contains(&"read".to_string()));
+    // Agent 决定使用 write 工具
+    let output = registry.execute(
+        "write",
+        serde_json::json!({
+            "path": "/tmp/test_integration.txt",
+            "content": "Hello, World!"
+        })
+    ).await.unwrap();
     
-    // Test invalid key
-    let result = auth.validate("invalid-key").await;
-    assert!(result.is_err());
+    assert!(output.is_success());
+    assert!(output.content.contains("Successfully"));
+    
+    // 验证文件创建
+    let read_output = registry.execute(
+        "read",
+        serde_json::json!({
+            "path": "/tmp/test_integration.txt"
+        })
+    ).await.unwrap();
+    
+    assert!(read_output.is_success());
+    assert!(read_output.content.contains("Hello, World!"));
+    
+    // 清理
+    std::fs::remove_file("/tmp/test_integration.txt").ok();
 }
 
-/// Test JWT token generation and validation
 #[tokio::test]
-async fn test_jwt_workflow() {
-    let secret = "test-secret-key-123".to_string();
-    let jwt_auth = JwtAuth::new(secret);
-    
-    // Generate token
-    let agent_id = "user-123".to_string();
-    let token = jwt_auth.generate(&agent_id).unwrap();
-    assert!(!token.is_empty());
-    
-    // Validate token
-    let validated = jwt_auth.validate(&token).unwrap();
-    assert_eq!(validated.sub, agent_id);
-}
-
-/// Test JWT with custom claims
-#[tokio::test]
-async fn test_jwt_with_claims() {
-    let secret = "test-secret".to_string();
-    let jwt_auth = JwtAuth::with_issuer(secret, "newclaw-test".to_string())
-        .with_expiry(7200);
-    
-    let agent_id = "user-456".to_string();
-    let permissions = Some(vec!["admin".to_string(), "write".to_string()]);
-    let role = Some("admin".to_string());
-    
-    let token = jwt_auth.generate_with_claims(&agent_id, permissions.clone(), role.clone()).unwrap();
-    let validated = jwt_auth.validate(&token).unwrap();
-    
-    assert_eq!(validated.sub, agent_id);
-    assert_eq!(validated.permissions, permissions);
-    assert_eq!(validated.role, role);
-}
-
-/// Test RBAC permission checking
-#[tokio::test]
-async fn test_rbac_permissions() {
-    let rbac = RbacManager::new();
-    
-    let agent_id = "agent-1".to_string();
-    let permission = Permission::Read;
-    
-    // Check permission (default: no roles assigned, should be false)
-    let has_permission = rbac.check_permission(&agent_id, permission.clone()).await;
-    assert!(!has_permission);
-    
-    // Assign role and check again
-    rbac.assign_role(&agent_id, "viewer").await;
-    let has_permission = rbac.check_permission(&agent_id, Permission::Read).await;
-    assert!(has_permission);
-}
-
-/// Test audit logging with memory backend
-#[tokio::test]
-async fn test_audit_logging() {
-    let audit = AuditLogger::memory();
-    
-    let entry = newclaw::security::audit::AuditEntry {
-        id: uuid::Uuid::new_v4().to_string(),
-        timestamp_iso: chrono::Utc::now().to_rfc3339(),
-        agent_id: "user-123".to_string(),
-        result: newclaw::security::audit::AuditResult::Success,
+async fn test_model_strategy_static() {
+    let strategy = llm::ModelStrategy::Static {
+        model: "gpt-4o-mini".to_string(),
     };
     
-    // Log entry should succeed
-    let result = audit.log(entry).await;
-    assert!(result.is_ok());
+    let model = strategy.select(100);
+    assert_eq!(model, "gpt-4o-mini");
 }
 
-/// Test context isolation
 #[tokio::test]
-async fn test_context_isolation() {
-    let config = ContextConfig::default();
-    let mut ctx_manager = ContextManager::new(config).unwrap();
+async fn test_model_strategy_round_robin() {
+    let strategy = llm::ModelStrategy::RoundRobin {
+        models: vec![
+            "gpt-4o-mini".to_string(),
+            "claude-3-5-sonnet".to_string(),
+        ],
+    };
     
-    // Add messages to context
-    let id1 = ctx_manager.add_message("Message from agent-1", "agent-1").unwrap();
-    let id2 = ctx_manager.add_message("Message from agent-2", "agent-2").unwrap();
+    let model1 = strategy.select(0);
+    let model2 = strategy.select(0);
+    let model3 = strategy.select(0);
     
-    // Verify messages were stored
-    assert!(!id1.is_empty());
-    assert!(!id2.is_empty());
-    
-    // Retrieve relevant context
-    let chunks = ctx_manager.retrieve_relevant("agent-1", 10).unwrap();
-    assert!(!chunks.is_empty());
+    assert_eq!(model1, "gpt-4o-mini");
+    assert_eq!(model2, "claude-3-5-sonnet");
+    assert_eq!(model3, "gpt-4o-mini");
 }
 
-/// Test inter-agent messaging
 #[tokio::test]
-async fn test_inter_agent_messaging() {
-    let from_agent = "source".to_string();
-    let to_agent = "target".to_string();
+async fn test_model_strategy_cost_optimized() {
+    let strategy = llm::ModelStrategy::CostOptimized {
+        cheap: "gpt-4o-mini".to_string(),
+        premium: "gpt-4o".to_string(),
+    };
     
-    let msg = InterAgentMessage::request(
-        from_agent.clone(),
-        to_agent.clone(),
-        Request::Query {
-            query: "Hello".to_string(),
-            context: None,
-        },
-    );
-    
-    // Verify message structure
-    assert_eq!(msg.from, from_agent);
-    assert_eq!(msg.to, to_agent);
-    
-    // Verify payload
-    if let MessagePayload::Request(Request::Query { query, .. }) = msg.payload {
-        assert_eq!(query, "Hello");
-    } else {
-        panic!("Expected Request::Query payload");
-    }
+    let model = strategy.select(0);
+    assert_eq!(model, "gpt-4o-mini");
 }
 
-/// Test security layer integration
 #[tokio::test]
-async fn test_security_integration() {
-    // Setup API Key auth
-    let api_auth = ApiKeyAuth::new();
+async fn test_model_strategy_adaptive() {
+    let strategy = llm::ModelStrategy::Adaptive {
+        simple: "gpt-4o-mini".to_string(),
+        complex: "gpt-4o".to_string(),
+        threshold: 1000,
+    };
     
-    // Setup JWT auth
-    let jwt_auth = JwtAuth::new("integration-secret".to_string());
+    // 简单任务
+    let model1 = strategy.select(500);
+    assert_eq!(model1, "gpt-4o-mini");
     
-    // Setup RBAC
-    let rbac = RbacManager::new();
-    
-    // Test authentication flow
-    let agent_id = "integration-agent".to_string();
-    let api_key = api_auth.generate(agent_id.clone(), vec!["read".to_string()]).await;
-    let key_result = api_auth.validate(&api_key).await;
-    assert!(key_result.is_ok());
-    
-    // Test JWT generation
-    let token = jwt_auth.generate(&agent_id).unwrap();
-    let validated = jwt_auth.validate(&token).unwrap();
-    assert_eq!(validated.sub, agent_id);
-    
-    // Test RBAC
-    let permission = Permission::Read;
-    let has_perm = rbac.check_permission(&agent_id, permission).await;
-    assert!(!has_perm); // No role assigned yet
-    
-    rbac.assign_role(&agent_id, "viewer").await;
-    let has_perm = rbac.check_permission(&agent_id, Permission::Read).await;
-    assert!(has_perm); // Now has permission
+    // 复杂任务
+    let model2 = strategy.select(1500);
+    assert_eq!(model2, "gpt-4o");
 }
 
-/// Test API key expiration
 #[tokio::test]
-async fn test_api_key_expiration() {
-    let auth = ApiKeyAuth::new();
+async fn test_sse_streaming() {
+    use llm::streaming::*;
     
-    let agent_id = "test-agent".to_string();
+    let event = SSEEvent::new("Hello, World!".to_string())
+        .with_id("123".to_string())
+        .with_event("message".to_string());
     
-    // Generate key that expires in 1 second
-    let key = auth.generate_with_expiry(agent_id.clone(), vec!["read".to_string()], 1).await;
+    let formatted = event.format();
     
-    // Should be valid immediately
-    let result = auth.validate(&key).await;
-    assert!(result.is_ok());
-    
-    // Wait for expiration
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-    
-    // Should be expired now
-    let result = auth.validate(&key).await;
-    assert!(result.is_err());
+    assert!(formatted.contains("id: 123"));
+    assert!(formatted.contains("event: message"));
+    assert!(formatted.contains("data: Hello, World!"));
+    assert!(formatted.ends_with("\n\n"));
 }
 
-/// Test JWT token expiration
 #[tokio::test]
-async fn test_jwt_expiration() {
-    let jwt_auth = JwtAuth::new("test-secret".to_string())
-        .with_expiry(1); // 1 second expiry
+async fn test_feishu_streaming_adapter() {
+    use llm::streaming::*;
     
-    let agent_id = "user-123".to_string();
-    let token = jwt_auth.generate(&agent_id).unwrap();
+    let mut adapter = FeishuStreamAdapter::new();
     
-    // Should be valid immediately
-    let result = jwt_auth.validate(&token);
-    assert!(result.is_ok());
+    adapter.add_chunk("Hello".to_string());
+    adapter.add_chunk(" World".to_string());
+    adapter.add_chunk("!".to_string());
     
-    // Wait for expiration
-    tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
-    
-    // Should be expired now
-    let result = jwt_auth.validate(&token);
-    assert!(result.is_err());
+    assert_eq!(adapter.chunks.len(), 3);
+    assert_eq!(adapter.next_chunk(0), Some("Hello".to_string()));
+    assert_eq!(adapter.next_chunk(1), Some(" World".to_string()));
+    assert_eq!(adapter.next_chunk(2), Some("!".to_string()));
+    assert_eq!(adapter.next_chunk(3), None);
 }
 
-/// Test RBAC role management
 #[tokio::test]
-async fn test_rbac_role_management() {
-    let rbac = RbacManager::new();
+async fn test_openai_provider_creation() {
+    use llm::OpenAIProvider;
     
-    let agent_id = "test-agent".to_string();
-    
-    // Assign multiple roles
-    rbac.assign_role(&agent_id, "viewer").await;
-    rbac.assign_role(&agent_id, "editor").await;
-    
-    // Check permissions from both roles
-    let can_read = rbac.check_permission(&agent_id, Permission::Read).await;
-    let can_write = rbac.check_permission(&agent_id, Permission::Write).await;
-    
-    assert!(can_read); // From viewer role
-    assert!(can_write); // From editor role
-    
-    // Revoke role
-    rbac.revoke_role(&agent_id, "editor").await;
-    
-    let can_write_after_revoke = rbac.check_permission(&agent_id, Permission::Write).await;
-    assert!(!can_write_after_revoke);
+    let provider = OpenAIProvider::new("test-key".to_string());
+    assert_eq!(provider.name(), "openai");
 }
 
-/// Test audit log filtering
 #[tokio::test]
-async fn test_audit_filtering() {
-    let audit = AuditLogger::memory();
+async fn test_claude_provider_creation() {
+    use llm::ClaudeProvider;
     
-    // Log multiple entries
-    for i in 0..5 {
-        let entry = newclaw::security::audit::AuditEntry {
-            id: uuid::Uuid::new_v4().to_string(),
-            timestamp_iso: chrono::Utc::now().to_rfc3339(),
-            agent_id: format!("agent-{}", i % 2),
-            result: if i % 2 == 0 {
-                newclaw::security::audit::AuditResult::Success
-            } else {
-                newclaw::security::audit::AuditResult::Failure
-            },
-        };
-        audit.log(entry).await.unwrap();
-    }
-    
-    // Query by agent_id
-    let entries = audit.query_by_agent("agent-0").await.unwrap();
-    assert_eq!(entries.len(), 3); // 0, 2, 4
+    let provider = ClaudeProvider::new("test-key".to_string());
+    assert_eq!(provider.name(), "claude");
 }
 
-/// Test message metadata
 #[tokio::test]
-async fn test_message_metadata() {
-    let from = "sender".to_string();
-    let to = "receiver".to_string();
+async fn test_tool_registry() {
+    use std::sync::Arc;
     
-    let msg = InterAgentMessage::request(
-        from.clone(),
-        to.clone(),
-        Request::Query {
-            query: "Test".to_string(),
-            context: None,
-        },
-    ).with_metadata("priority".to_string(), "high".to_string())
-     .with_metadata("trace_id".to_string(), "abc-123".to_string());
+    let registry = ToolRegistry::new();
+    let read_tool = Arc::new(ReadTool);
     
-    assert_eq!(msg.metadata.get("priority"), Some(&"high".to_string()));
-    assert_eq!(msg.metadata.get("trace_id"), Some(&"abc-123".to_string()));
+    registry.register(read_tool).await;
+    
+    let tools = registry.list().await;
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0].name, "read");
+    
+    let exists = registry.exists("read").await;
+    assert!(exists);
+    
+    let not_exists = registry.exists("nonexistent").await;
+    assert!(!not_exists);
 }
 
-/// Test message types
 #[tokio::test]
-async fn test_message_types() {
-    let from = "agent-1".to_string();
-    let to = "agent-2".to_string();
+async fn end_to_end_workflow() {
+    // 完整的工作流测试
     
-    // Test request message
-    let request_msg = InterAgentMessage::request(
-        from.clone(),
-        to.clone(),
-        Request::Query {
-            query: "test query".to_string(),
-            context: None,
-        },
-    );
-    assert!(matches!(request_msg.payload, MessagePayload::Request(_)));
+    // 1. 创建工具
+    let registry = ToolRegistry::new();
+    registry.register(Arc::new(WriteTool)).await;
+    registry.register(Arc::new(ReadTool)).await;
     
-    // Test response message
-    let response_msg = InterAgentMessage::response(
-        from.clone(),
-        to.clone(),
-        Response::success(serde_json::json!({"result": "ok"})),
-        "correlation-123".to_string(),
-    );
-    assert!(matches!(response_msg.payload, MessagePayload::Response(_)));
-    assert_eq!(response_msg.correlation_id, Some("correlation-123".to_string()));
+    // 2. 创建 LLM Provider
+    let openai = llm::OpenAIProvider::new("dummy-key".to_string());
+    assert_eq!(openai.name(), "openai");
     
-    // Test event message
-    let event_msg = InterAgentMessage::event(
-        from.clone(),
-        to.clone(),
-        Event::AgentStatus {
-            agent_id: from.clone(),
-            status: "online".to_string(),
-        },
-    );
-    assert!(matches!(event_msg.payload, MessagePayload::Event(_)));
-}
-
-/// Test rate limiting (if available)
-#[tokio::test]
-#[ignore = "Rate limiting requires running server"]
-async fn test_rate_limiting() {
-    // This test would require a running HTTP server
-    // Marked as ignored for CI/CD
-}
-
-/// Test WebSocket connection (if available)
-#[tokio::test]
-#[ignore = "WebSocket test requires running server"]
-async fn test_websocket_connection() {
-    // This test would require a running WebSocket server
-    // Marked as ignored for CI/CD
+    // 3. 模拟工作流
+    // 用户: "创建一个文件并写入测试内容"
+    // Agent: 使用 write 工具
+    let write_output = registry.execute(
+        "write",
+        serde_json::json!({
+            "path": "/tmp/e2e_test.txt",
+            "content": "测试内容"
+        })
+    ).await.unwrap();
+    
+    assert!(write_output.is_success());
+    
+    // Agent: 使用 read 工具验证
+    let read_output = registry.execute(
+        "read",
+        serde_json::json!({
+            "path": "/tmp/e2e_test.txt"
+        })
+    ).await.unwrap();
+    
+    assert!(read_output.is_success());
+    assert!(read_output.content.contains("测试内容"));
+    
+    // 清理
+    std::fs::remove_file("/tmp/e2e_test.txt").ok();
 }

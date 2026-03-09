@@ -4,11 +4,13 @@
 pub mod provider;
 pub mod openai;
 pub mod claude;
+pub mod streaming;
 
 // Re-exports
 pub use provider::{LLMProviderV3, ChatRequest, ChatResponse, Message, MessageRole, LLMError, ModelStrategy, LLMConfig, ProviderType};
 pub use openai::OpenAIProvider;
 pub use claude::ClaudeProvider;
+pub use streaming::{StreamChunk, StreamingResponse, SSEEvent, stream_llm_response, WebSocketStream, FeishuStreamAdapter};
 
 // 向后兼容：旧的 LLMProvider 导出
 pub use GLMProvider as LLMProvider;
