@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 2. Create context manager
     println!("✓ Creating context manager...");
-    let ctx_manager = ContextManager::new();
+    let mut ctx_manager = ContextManager::new();
 
     // 3. Setup agents
     let agent1 = AgentId("agent-alice".to_string());
@@ -39,12 +39,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 5. Agent 1 sends message to Agent 2
     println!("📤 Agent {:?} sending message to {:?}", agent1, agent2);
-    let msg1 = InterAgentMessage {
-        from: agent1.clone(),
-        to: agent2.clone(),
-        payload: MessagePayload::Text("Hello Bob!".to_string()),
-        timestamp: chrono::Utc::now(),
-    };
+    let msg1 = InterAgentMessage::new(
+        agent1.clone(),
+        agent2.clone(),
+        MessagePayload::Text("Hello Bob!".to_string()),
+    );
     queue.enqueue(msg1).await?;
     println!("   ✓ Message enqueued\n");
 
@@ -55,15 +54,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 7. Agent 2 replies
     println!("\n📤 Agent {:?} sending reply to {:?}", agent2, agent1);
-    let msg2 = InterAgentMessage {
-        from: agent2.clone(),
-        to: agent1.clone(),
-        payload: MessagePayload::Json(serde_json::json!({
+    let msg2 = InterAgentMessage::new(
+        agent2.clone(),
+        agent1.clone(),
+        MessagePayload::Json(serde_json::json!({
             "status": "received",
             "reply": "Hello Alice!"
         })),
-        timestamp: chrono::Utc::now(),
-    };
+    );
     queue.enqueue(msg2).await?;
     println!("   ✓ Reply enqueued\n");
 
