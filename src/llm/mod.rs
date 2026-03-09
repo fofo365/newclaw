@@ -1,16 +1,29 @@
 // LLM Integration Module
 
+// v0.3.0 - 新的多 LLM 架构
+pub mod provider;
+pub mod openai;
+pub mod claude;
+
+// Re-exports
+pub use provider::{LLMProviderV3, ChatRequest, ChatResponse, Message, MessageRole, LLMError, ModelStrategy, LLMConfig, ProviderType};
+pub use openai::OpenAIProvider;
+pub use claude::ClaudeProvider;
+
+// 向后兼容：旧的 LLMProvider 导出
+pub use GLMProvider as LLMProvider;
+
+// Legacy v0.2.0 LLM 接口（保留向后兼容）
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use anyhow::Result;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LLMMessage {
     pub role: String,
     pub content: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LLMRequest {
     pub model: String,
     pub messages: Vec<LLMMessage>,
@@ -18,15 +31,16 @@ pub struct LLMRequest {
     pub max_tokens: Option<usize>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LLMResponse {
     pub content: String,
     pub tokens_used: usize,
     pub model: String,
 }
 
+/// Legacy LLM Provider trait (v0.2.0)
 #[async_trait]
-pub trait LLMProvider: Send + Sync {
+pub trait LegacyLLMProvider: Send + Sync {
     fn name(&self) -> &str;
     
     async fn chat(&self, request: &LLMRequest) -> Result<LLMResponse>;
@@ -36,6 +50,7 @@ pub trait LLMProvider: Send + Sync {
     }
 }
 
+/// GLM Provider (v0.2.0 实现，保留向后兼容)
 pub struct GLMProvider {
     #[allow(dead_code)]
     api_key: String,
@@ -56,7 +71,7 @@ impl GLMProvider {
 }
 
 #[async_trait]
-impl LLMProvider for GLMProvider {
+impl LegacyLLMProvider for GLMProvider {
     fn name(&self) -> &str {
         "glm"
     }

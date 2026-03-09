@@ -1,7 +1,7 @@
 // Agent Engine - Core agent logic
 
 use crate::core::{ContextManager, ContextConfig};
-use crate::llm::{LLMProvider, LLMMessage, LLMResponse, LLMRequest};
+use crate::llm::{LegacyLLMProvider, LLMMessage, LLMResponse, LLMRequest};
 use anyhow::Result;
 
 #[derive(Debug, Clone)]
@@ -16,7 +16,7 @@ pub struct AgentEngine {
     pub memory: ContextManager,
     pub name: String,
     pub model: String,
-    llm: Option<Box<dyn LLMProvider>>,
+    llm: Option<Box<dyn LegacyLLMProvider>>,
 }
 
 impl AgentEngine {
@@ -35,7 +35,7 @@ impl AgentEngine {
     }
 
     /// Create agent with LLM provider
-    pub fn with_llm(mut self, llm: Box<dyn LLMProvider>) -> Self {
+    pub fn with_llm(mut self, llm: Box<dyn LegacyLLMProvider>) -> Self {
         self.llm = Some(llm);
         self
     }
