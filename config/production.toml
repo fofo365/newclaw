@@ -1,0 +1,76 @@
+# NewClaw Production Configuration
+# IMPORTANT: Replace all placeholder values before deployment
+
+[server]
+host = "0.0.0.0"
+port = 8080
+workers = 8
+
+[server.tls]
+enabled = true
+cert_path = "/etc/ssl/certs/newclaw.crt"
+key_path = "/etc/ssl/private/newclaw.key"
+
+[api_keys]
+# Load from environment: NEWCLAW_API_KEYS
+# Format: key1:name1:scope1,scope2;key2:name2:scope3
+keys = []
+
+[jwt]
+# Load from environment: NEWCLAW_JWT_SECRET
+secret = "${NEWCLAW_JWT_SECRET}"
+issuer = "newclaw-prod"
+expiry_hours = 8
+
+[rbac]
+[[rbac.roles]]
+name = "admin"
+permissions = [
+    { resource = "*", action = "*" }
+]
+
+[[rbac.roles]]
+name = "service"
+permissions = [
+    { resource = "messages", action = "read" },
+    { resource = "messages", action = "write" }
+]
+
+[audit]
+enabled = true
+log_path = "/var/log/newclaw/audit.log"
+max_entries = 1000000
+rotation = "daily"
+
+[rate_limiting]
+enabled = true
+algorithm = "token_bucket"
+requests_per_minute = 120
+burst_size = 20
+
+[message_queue]
+max_size = 50000
+processing_timeout_ms = 10000
+retry_attempts = 5
+retry_delay_ms = 2000
+
+[websocket]
+enabled = true
+max_connections = 5000
+ping_interval_seconds = 30
+max_message_size_bytes = 2097152  # 2MB
+
+[context]
+max_contexts = 5000
+context_timeout_seconds = 7200  # 2 hours
+cleanup_interval_seconds = 300
+
+[logging]
+level = "warn"
+format = "json"
+output = "/var/log/newclaw/app.log"
+
+[monitoring]
+enabled = true
+metrics_port = 9090
+health_check_path = "/health"

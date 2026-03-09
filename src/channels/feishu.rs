@@ -51,6 +51,15 @@ impl FeishuApiClient {
         }
     }
     
+    pub fn get_config(&self) -> &FeishuConfig {
+        &self.config
+    }
+    
+    pub async fn ensure_token(&mut self) -> Result<()> {
+        self.get_access_token().await?;
+        Ok(())
+    }
+    
     async fn get_access_token(&mut self) -> Result<String> {
         if let Some(token) = &self.access_token {
             return Ok(token.clone());
@@ -86,6 +95,8 @@ impl FeishuApiClient {
         Ok(token)
     }
     
+    /// Refresh the access token by clearing the current token and fetching a new one
+    #[allow(dead_code)]
     async fn refresh_access_token(&mut self) -> Result<String> {
         self.access_token = None;
         self.get_access_token().await

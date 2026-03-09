@@ -58,6 +58,10 @@ impl GLMProvider {
     pub fn new(api_key: String, model: String) -> Self {
         Self { api_key, model }
     }
+    
+    pub fn get_api_key(&self) -> &str {
+        &self.api_key
+    }
 }
 
 #[async_trait]
