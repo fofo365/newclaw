@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NewClaw Dashboard - Login</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .login-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+        }
+        
+        .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .logo h1 {
+            font-size: 28px;
+            color: #333;
+            margin-bottom: 8px;
+        }
+        
+        .logo p {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e1e8ed;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .help {
+            margin-top: 20px;
+            padding: 16px;
+            background: #f7f9fc;
+            border-radius: 8px;
+            font-size: 13px;
+            color: #666;
+            line-height: 1.6;
+        }
+        
+        .help code {
+            background: #e1e8ed;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        
+        .error {
+            color: #e53e3e;
+            font-size: 14px;
+            margin-top: 8px;
+            display: none;
+        }
+        
+        .error.show {
+            display: block;
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo">
+            <h1>🚀 NewClaw</h1>
+            <p>Dashboard Login</p>
+        </div>
+        
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="pairCode">6-Digit Pair Code</label>
+                <input 
+                    type="text" 
+                    id="pairCode" 
+                    name="pairCode" 
+                    placeholder="123456" 
+                    maxlength="6"
+                    pattern="[0-9]{6}"
+                    required
+                    autocomplete="off"
+                    autofocus
+                >
+                <div class="error" id="error"></div>
+            </div>
+            
+            <button type="submit" class="btn" id="submitBtn">
+                Login
+            </button>
+        </form>
+        
+        <div class="help">
+            <strong>How to get pair code?</strong><br><br>
+            Run this command in your server:<br>
+            <code>newclaw paircode</code><br><br>
+            The code will be valid for 1 hour.
+        </div>
+    </div>
+    
+    <script>
+        const form = document.getElementById('loginForm');
+        const pairCodeInput = document.getElementById('pairCode');
+        const submitBtn = document.getElementById('submitBtn');
+        const errorDiv = document.getElementById('error');
+        
+        // 只允许输入数字
+        pairCodeInput.addEventListener('input', (e) => {
+            e.target.value = e.target.value.replace(/\D/g, '');
+            errorDiv.classList.remove('show');
+        });
+        
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const pairCode = pairCodeInput.value.trim();
+            
+            if (pairCode.length !== 6) {
+                showError('Please enter a 6-digit code');
+                return;
+            }
+            
+            // 显示加载状态
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner"></span>Verifying...';
+            
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ pair_code: pairCode }),
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    // 保存 token 到 localStorage
+                    localStorage.setItem('dashboard_token', data.token);
+                    localStorage.setItem('session_id', data.session_id);
+                    localStorage.setItem('expires_at', data.expires_at);
+                    
+                    // 跳转到 dashboard
+                    window.location.href = '/dashboard.html';
+                } else {
+                    showError('Invalid or expired pair code');
+                }
+            } catch (error) {
+                showError('Network error. Please try again.');
+                console.error('Login error:', error);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = 'Login';
+            }
+        });
+        
+        function showError(message) {
+            errorDiv.textContent = message;
+            errorDiv.classList.add('show');
+        }
+        
+        // 检查是否已登录
+        window.addEventListener('load', () => {
+            const token = localStorage.getItem('dashboard_token');
+            if (token) {
+                // 验证 token 是否有效
+                fetch('/api/auth/verify', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                    },
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.valid) {
+                        // 已登录，跳转到 dashboard
+                        window.location.href = '/dashboard.html';
+                    }
+                })
+                .catch(() => {
+                    // Token 无效，清除
+                    localStorage.removeItem('dashboard_token');
+                    localStorage.removeItem('session_id');
+                    localStorage.removeItem('expires_at');
+                });
+            }
+        });
+    </script>
+</body>
+</html>

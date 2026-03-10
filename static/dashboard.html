@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NewClaw Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f5f7fa;
+        }
+        
+        .header {
+            background: white;
+            border-bottom: 1px solid #e1e8ed;
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .header h1 {
+            font-size: 20px;
+            color: #333;
+        }
+        
+        .logout-btn {
+            padding: 8px 16px;
+            background: #e53e3e;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        .logout-btn:hover {
+            background: #c53030;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .card h2 {
+            font-size: 18px;
+            color: #333;
+            margin-bottom: 16px;
+        }
+        
+        .info {
+            color: #666;
+            line-height: 1.8;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🚀 NewClaw Dashboard</h1>
+        <button class="logout-btn" onclick="logout()">Logout</button>
+    </div>
+    
+    <div class="container">
+        <div class="card">
+            <h2>Welcome!</h2>
+            <div class="info">
+                <p><strong>Session ID:</strong> <span id="sessionId">Loading...</span></p>
+                <p><strong>Expires at:</strong> <span id="expiresAt">Loading...</span></p>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Quick Start</h2>
+            <div class="info">
+                <p>🎉 You are now authenticated and can access all Dashboard features!</p>
+                <br>
+                <p>Available pages:</p>
+                <ul style="margin-left: 20px; margin-top: 10px;">
+                    <li><a href="/config.html">Configuration</a> - Manage LLM, tools, and Feishu settings</li>
+                    <li><a href="/monitor.html">Monitoring</a> - View logs, metrics, and health status</li>
+                    <li><a href="/chat.html">Chat</a> - Interactive AI chat interface</li>
+                    <li><a href="/admin.html">Admin</a> - User and API key management</li>
+                </ul>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>API Test</h2>
+            <div class="info">
+                <p>Testing authentication... <span id="authTest">Loading...</span></p>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const token = localStorage.getItem('dashboard_token');
+        const sessionId = localStorage.getItem('session_id');
+        const expiresAt = localStorage.getItem('expires_at');
+        
+        if (!token) {
+            // 未登录，跳转到登录页
+            window.location.href = '/login.html';
+        } else {
+            // 显示会话信息
+            document.getElementById('sessionId').textContent = sessionId || 'Unknown';
+            document.getElementById('expiresAt').textContent = expiresAt || 'Unknown';
+            
+            // 测试认证
+            testAuth();
+        }
+        
+        async function testAuth() {
+            try {
+                const response = await fetch('/api/auth/verify', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                    },
+                });
+                
+                const data = await response.json();
+                
+                if (data.valid) {
+                    document.getElementById('authTest').textContent = '✅ Valid';
+                    document.getElementById('authTest').style.color = 'green';
+                } else {
+                    document.getElementById('authTest').textContent = '❌ Invalid';
+                    document.getElementById('authTest').style.color = 'red';
+                }
+            } catch (error) {
+                document.getElementById('authTest').textContent = '❌ Error';
+                document.getElementById('authTest').style.color = 'red';
+            }
+        }
+        
+        function logout() {
+            localStorage.removeItem('dashboard_token');
+            localStorage.removeItem('session_id');
+            localStorage.removeItem('expires_at');
+            window.location.href = '/login.html';
+        }
+    </script>
+</body>
+</html>

@@ -18,6 +18,12 @@ pub mod communication;
 
 // v0.3.0 - Tool execution engine
 pub mod tools;
+// TODO: 重新导出工具类型（暂时注释掉）
+// pub use tools::{
+//     Tool, ToolMetadata, ToolCall, ToolResult as CoreToolResult, ToolContent, ToolContext,
+//     ToolRegistry, ToolExecutor, PermissionManager,
+//     NewClawError,
+// };
 
 // v0.4.0 - Feishu WebSocket connection management
 pub mod feishu_websocket;
@@ -30,6 +36,9 @@ pub mod context;
 
 // v0.5.0 - Vector Embedding (向量嵌入)
 pub mod embedding;
+
+// v0.5.0 - MCP (Model Context Protocol)
+pub mod mcp;
 
 // Re-export main types
 pub use core::AgentEngine;
@@ -65,8 +74,9 @@ pub use communication::RedisMessageQueue;
 pub use core::IsolationLevel;
 
 // v0.3.0 - Tool re-exports
-pub use tools::{Tool, ToolOutput, ToolError, ToolResult, ToolDescription, Media, MediaType, ToolRegistry};
-pub use tools::{ReadTool, WriteTool, EditTool, ExecTool, SearchTool};
+// 注释掉旧的导出，使用新的工具系统
+// pub use tools::{Tool, ToolOutput, ToolError, ToolResult, ToolDescription, Media, MediaType, ToolRegistry};
+// pub use tools::{ReadTool, WriteTool, EditTool, ExecTool, SearchTool};
 
 // v0.4.0 - Feishu WebSocket re-exports
 pub use feishu_websocket::{

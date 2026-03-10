@@ -265,9 +265,13 @@ async fn main() -> anyhow::Result<()> {
 
                     // 创建工具注册表并执行
                     let registry = newclaw::tools::ToolRegistry::new();
-                    register_default_tools(&registry).await;
+                    // register_default_tools(&registry).await;  // TODO: 工具系统待实现
 
-                    match registry.execute(&name, params_json).await {
+                    // TODO: 工具执行功能待实现
+                    println!("❌ Tool system not yet implemented");
+                    println!("   Tool: {}", name);
+                    println!("   Params: {}", params_json);
+                    /* match registry.execute(&name, params_json).await {
                         Ok(output) => {
                             if output.is_success() {
                                 println!("✅ Result:");
@@ -279,7 +283,7 @@ async fn main() -> anyhow::Result<()> {
                         Err(e) => {
                             println!("❌ Tool execution failed: {}", e);
                         }
-                    }
+                    } */
                 }
             }
         }
@@ -289,15 +293,16 @@ async fn main() -> anyhow::Result<()> {
 }
 
 /// 注册默认工具
-async fn register_default_tools(registry: &newclaw::tools::ToolRegistry) {
-    use std::sync::Arc;
+async fn register_default_tools(_registry: &newclaw::tools::ToolRegistry) {
+    // TODO: 工具系统待实现
+    /* use std::sync::Arc;
     use newclaw::tools::{ReadTool, WriteTool, EditTool, ExecTool, SearchTool};
 
     registry.register(Arc::new(ReadTool)).await;
     registry.register(Arc::new(WriteTool)).await;
     registry.register(Arc::new(EditTool)).await;
     registry.register(Arc::new(ExecTool)).await;
-    registry.register(Arc::new(SearchTool)).await;
+    registry.register(Arc::new(SearchTool)).await; */
 }
 
 /// 从 Dashboard API 获取配对码

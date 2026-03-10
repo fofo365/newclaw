@@ -326,27 +326,23 @@ async fn process_chat(
 }
 
 /// 注册工具
-async fn register_tools(registry: &ToolRegistry) {
-    use std::sync::Arc;
-    use crate::tools::{ReadTool, WriteTool, EditTool, ExecTool, SearchTool};
-    
-    registry.register(Arc::new(ReadTool::default())).await;
-    registry.register(Arc::new(WriteTool::default())).await;
-    registry.register(Arc::new(EditTool::default())).await;
-    registry.register(Arc::new(ExecTool::default())).await;
-    registry.register(Arc::new(SearchTool::default())).await;
+async fn register_tools(_registry: &ToolRegistry) {
+    // TODO: 工具系统待重新实现
+    // use std::sync::Arc;
+    // use crate::tools::{ReadTool, WriteTool, EditTool, ExecTool, SearchTool};
+    // 
+    // registry.register(Arc::new(ReadTool::default())).await;
+    // registry.register(Arc::new(WriteTool::default())).await;
+    // registry.register(Arc::new(EditTool::default())).await;
+    // registry.register(Arc::new(ExecTool::default())).await;
+    // registry.register(Arc::new(SearchTool::default())).await;
 }
 
 /// 列出工具
-async fn list_tools(registry: &ToolRegistry) {
+async fn list_tools(_registry: &ToolRegistry) {
     println!("\n📦 Available Tools:");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    
-    let tools = registry.list().await;
-    for tool in tools {
-        println!("  • {} - {}", tool.name, tool.description);
-    }
-    
+    println!("  工具系统待实现");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 }
 
