@@ -1,19 +1,22 @@
-target/
-# Dashboard UI build artifacts
-dashboard-ui/node_modules/
-dashboard-ui/dist/
-static/
-# Test and build artifacts
-*.log
-*.swp
-*.swo
-*~
-.DS_Store
+# Rust
+/target/
+Cargo.lock
+*.rs.bk
+*.pdb
+
 # IDE
 .idea/
 .vscode/
-*.iml
-# Temporary files
-*.tmp
-*.temp
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Environment
+.env
 .env.local
+
+# Benchmark results
+/target/criterion/
