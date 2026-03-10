@@ -7,6 +7,7 @@ pub mod permissions;
 pub mod error;
 pub mod files;
 pub mod exec;
+pub mod web;
 
 // 重新导出主要类型
 pub use registry::ToolRegistry;
@@ -20,6 +21,9 @@ pub use files::{ReadTool, WriteTool, EditTool};
 // Shell 执行工具
 pub use exec::{ExecTool, ProcessTool};
 pub use crate::tools::exec::ProcessManager;
+
+// 网络请求工具
+pub use web::{WebSearchTool, WebFetchTool};
 
 // MCP 工具类型（与 MCP 层兼容）
 pub use crate::mcp::tools::{ToolMetadata, ToolCall, ToolResult as McpToolResult, ToolContent};
