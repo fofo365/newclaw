@@ -5,10 +5,13 @@
 // - 批量嵌入处理
 // - 进度追踪
 // - 错误处理和重试
+// - 缓存集成
 
 use super::{EmbeddingClient, EmbeddingError, EmbeddingResult, BatchEmbeddingResult, EmbeddingOptions};
+use super::cache::EmbeddingCache;
 use std::time::Instant;
 use tokio::sync::mpsc;
+use std::sync::Arc;
 
 /// 文本分块器
 pub struct TextChunker {
@@ -91,6 +94,8 @@ pub struct EmbeddingPipeline {
     chunker: TextChunker,
     /// 配置选项
     options: EmbeddingOptions,
+    /// 嵌入缓存
+    cache: Option<Arc<EmbeddingCache>>,
 }
 
 impl EmbeddingPipeline {
@@ -100,10 +105,17 @@ impl EmbeddingPipeline {
             client,
             chunker,
             options,
+            cache: None,
         }
     }
 
-    /// 处理单个文档（自动分块）
+    /// 启用缓存
+    pub fn with_cache(mut self, cache: Arc<EmbeddingCache>) -> Self {
+        self.cache = Some(cache);
+        self
+    }
+
+    /// 处理单个文档（自动分块 + 缓存）
     pub async fn process_document(&self, text: &str) -> Result<PipelineResult, EmbeddingError> {
         let start = Instant::now();
 
@@ -111,30 +123,107 @@ impl EmbeddingPipeline {
         let chunks = self.chunker.chunk(text)?;
         let chunk_count = chunks.len();
 
-        // 批量嵌入
-        let batch_result = self.client.embed_batch(chunks.clone()).await?;
+        // 检查缓存（如果启用）
+        let mut uncached_chunks = Vec::new();
+        let mut cached_results = Vec::new();
+        let mut cache_hits = 0;
+        let mut chunk_to_cache_idx: Vec<Option<usize>> = Vec::new(); // 映射原始块索引到缓存结果索引
 
-        // 组装结果
-        let embeddings: Vec<EmbeddingResult> = chunks
-            .into_iter()
-            .zip(batch_result.embeddings.into_iter())
-            .map(|(text, embedding)| EmbeddingResult {
-                embedding,
-                model: "pipeline".to_string(),
-                tokens: self.chunker.estimate_tokens(&text),
-                duration: if chunk_count > 0 {
-                    batch_result.total_duration / chunk_count as u32
+        if let Some(cache) = &self.cache {
+            for (idx, chunk) in chunks.iter().enumerate() {
+                let cache_key = self.compute_cache_key(chunk);
+                if let Some(result) = cache.get(&cache_key).await {
+                    cached_results.push((idx, result.clone()));
+                    cache_hits += 1;
+                    chunk_to_cache_idx.push(Some(cached_results.len() - 1));
                 } else {
-                    batch_result.total_duration
-                },
-            })
-            .collect();
+                    uncached_chunks.push(chunk.clone());
+                    chunk_to_cache_idx.push(None);
+                }
+            }
+        } else {
+            uncached_chunks = chunks.clone();
+            for _ in 0..chunks.len() {
+                chunk_to_cache_idx.push(None);
+            }
+        }
+
+        // 批量嵌入未缓存的块
+        let mut new_embeddings = Vec::new();
+        if !uncached_chunks.is_empty() {
+            let batch_result = self.client.embed_batch(uncached_chunks.clone()).await?;
+
+            // 将新结果存入缓存
+            if let Some(cache) = &self.cache {
+                for (chunk, embedding) in uncached_chunks.iter().zip(batch_result.embeddings.iter()) {
+                    let result = EmbeddingResult {
+                        embedding: embedding.clone(),
+                        model: "pipeline".to_string(),
+                        tokens: self.chunker.estimate_tokens(chunk),
+                        duration: if chunk_count > 0 {
+                            batch_result.total_duration / chunk_count as u32
+                        } else {
+                            batch_result.total_duration
+                        },
+                    };
+
+                    let cache_key = self.compute_cache_key(chunk);
+                    cache.put(cache_key, result.clone()).await;
+                    new_embeddings.push(result);
+                }
+            } else {
+                new_embeddings = uncached_chunks
+                    .into_iter()
+                    .zip(batch_result.embeddings.into_iter())
+                    .map(|(text, embedding)| EmbeddingResult {
+                        embedding,
+                        model: "pipeline".to_string(),
+                        tokens: self.chunker.estimate_tokens(&text),
+                        duration: if chunk_count > 0 {
+                            batch_result.total_duration / chunk_count as u32
+                        } else {
+                            batch_result.total_duration
+                        },
+                    })
+                    .collect();
+            }
+        }
+
+        // 合并缓存和新结果（保持原始顺序）
+        let mut all_embeddings: Vec<Option<EmbeddingResult>> = vec![None; chunks.len()];
+
+        // 填充缓存结果
+        for (idx, result) in cached_results {
+            all_embeddings[idx] = Some(result);
+        }
+
+        // 填充新结果
+        let mut new_idx = 0;
+        for (idx, cache_idx) in chunk_to_cache_idx.iter().enumerate() {
+            if cache_idx.is_none() && new_idx < new_embeddings.len() {
+                all_embeddings[idx] = Some(new_embeddings[new_idx].clone());
+                new_idx += 1;
+            }
+        }
+
+        // 转换为 Vec，移除 None
+        let embeddings: Vec<EmbeddingResult> = all_embeddings.into_iter().filter_map(|x| x).collect();
+
+        // 计算统计信息
+        let total_tokens: usize = embeddings.iter().map(|e| e.tokens).sum();
+        let cache_hit_rate = if chunk_count > 0 {
+            cache_hits as f64 / chunk_count as f64
+        } else {
+            0.0
+        };
 
         Ok(PipelineResult {
             embeddings,
-            total_tokens: batch_result.total_tokens,
+            total_tokens,
             total_duration: start.elapsed(),
             chunk_count,
+            cache_hits,
+            cache_hit_rate,
         })
     }
 
@@ -153,7 +242,7 @@ impl EmbeddingPipeline {
     /// 流式处理（发送进度更新）
     pub async fn process_stream(
         &self,
-        texts: Vec<String>,
+        _texts: Vec<String>,
     ) -> mpsc::UnboundedReceiver<PipelineProgress> {
         let (tx, rx) = mpsc::unbounded_channel();
 
@@ -165,6 +254,16 @@ impl EmbeddingPipeline {
         });
 
         rx
+    }
+
+    /// 计算缓存键（简单哈希）
+    fn compute_cache_key(&self, text: &str) -> String {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        text.hash(&mut hasher);
+        format!("{:x}", hasher.finish())
     }
 }
 
@@ -179,6 +278,10 @@ pub struct PipelineResult {
     pub total_duration: std::time::Duration,
     /// 分块数量
     pub chunk_count: usize,
+    /// 缓存命中次数
+    pub cache_hits: usize,
+    /// 缓存命中率
+    pub cache_hit_rate: f64,
 }
 
 /// 流水线进度

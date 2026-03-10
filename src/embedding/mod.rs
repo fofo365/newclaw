@@ -9,10 +9,12 @@
 pub mod client;
 pub mod pipeline;
 pub mod cache;
+pub mod batch_optimizer;
 
 pub use client::{EmbeddingClient, OpenAIEmbeddingClient, EmbeddingConfig};
 pub use pipeline::{EmbeddingPipeline, TextChunker};
 pub use cache::{EmbeddingCache, CacheConfig};
+pub use batch_optimizer::{BatchOptimizer, BatchConfig};
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
