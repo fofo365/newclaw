@@ -1,10 +1,26 @@
-// 工具系统占位符
-// TODO: 重新实现工具执行引擎
+// NewClaw 工具执行引擎
+// 提供与 OpenClaw 相当的工具能力
 
-pub struct ToolRegistry;
+pub mod registry;
+pub mod executor;
+pub mod permissions;
+pub mod error;
 
-impl ToolRegistry {
-    pub fn new() -> Self {
-        Self
-    }
+// 重新导出主要类型
+pub use registry::ToolRegistry;
+pub use executor::ToolExecutor;
+pub use permissions::PermissionManager;
+pub use error::{ToolError, ToolResult};
+
+// MCP 工具类型（与 MCP 层兼容）
+pub use crate::mcp::tools::{ToolMetadata, ToolCall, ToolResult as McpToolResult, ToolContent};
+
+/// 工具 trait - 所有工具必须实现
+#[async_trait::async_trait]
+pub trait Tool: Send + Sync {
+    /// 工具元数据
+    fn metadata(&self) -> ToolMetadata;
+    
+    /// 执行工具
+    async fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolError>;
 }
