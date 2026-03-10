@@ -46,6 +46,7 @@ async fn test_openai_embedding_batch() {
 
     let config = EmbeddingConfig {
         api_key: api_key.unwrap(),
+        base_url: "https://api.openai.com/v1".to_string(),
         model: EmbeddingModel::OpenAI3Small,
         options: EmbeddingOptions {
             batch_size: 5,
@@ -81,6 +82,7 @@ async fn test_embedding_cache() {
 
     let config = EmbeddingConfig {
         api_key: api_key.unwrap(),
+        base_url: "https://api.openai.com/v1".to_string(),
         model: EmbeddingModel::OpenAI3Small,
         ..Default::default()
     };
@@ -93,22 +95,24 @@ async fn test_embedding_cache() {
     let result1 = client.embed(text1).await.unwrap();
 
     // 缓存结果
-    cache.put(text1.to_string(), result1.clone()).unwrap();
+    cache.put(text1.to_string(), result1.clone()).await;
 
     // 第二次请求（从缓存）
-    let cached = cache.get(text1).unwrap().unwrap();
+    let cached = cache.get(text1).await;
+    assert!(cached.is_some());
+    let cached = cached.unwrap();
 
     assert_eq!(cached.embedding, result1.embedding);
     assert_eq!(cached.model, result1.model);
 
     // 检查统计
-    let stats = cache.stats();
+    let stats = cache.stats().await;
     assert_eq!(stats.hits, 1);
     assert_eq!(stats.misses, 1);
 }
 
 #[tokio::test]
-fn test_text_chunker() {
+async fn test_text_chunker() {
     let chunker = TextChunker::new(100, 20);
 
     // 短文本（不分块）
@@ -123,7 +127,7 @@ fn test_text_chunker() {
 }
 
 #[tokio::test]
-fn test_estimate_tokens() {
+async fn test_estimate_tokens() {
     let chunker = TextChunker::default();
 
     // 英文
@@ -152,6 +156,7 @@ async fn test_embedding_pipeline() {
 
     let config = EmbeddingConfig {
         api_key: api_key.unwrap(),
+        base_url: "https://api.openai.com/v1".to_string(),
         model: EmbeddingModel::OpenAI3Small,
         ..Default::default()
     };
@@ -183,7 +188,7 @@ async fn test_embedding_pipeline() {
 }
 
 #[tokio::test]
-fn test_cache_ttl() {
+async fn test_cache_ttl() {
     let cache = EmbeddingCache::new(newclaw::embedding::CacheConfig {
         max_entries: 100,
         ttl: Duration::from_millis(100), // 短 TTL
@@ -198,16 +203,16 @@ fn test_cache_ttl() {
     };
 
     // 添加缓存
-    cache.put("test".to_string(), result.clone()).unwrap();
+    cache.put("test".to_string(), result.clone()).await;
 
     // 立即获取（应该成功）
-    let cached = cache.get("test").unwrap();
+    let cached = cache.get("test").await;
     assert!(cached.is_some());
 
     // 等待 TTL 过期
     tokio::time::sleep(Duration::from_millis(150)).await;
 
     // 再次获取（应该失败）
-    let cached = cache.get("test").unwrap();
+    let cached = cache.get("test").await;
     assert!(cached.is_none());
 }

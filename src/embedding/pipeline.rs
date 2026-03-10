@@ -59,13 +59,16 @@ impl TextChunker {
             let chunk: String = chars[start..end].iter().collect();
             chunks.push(chunk);
 
-            // 确保至少前进 1 个字符，并防止溢出
-            let next_start = if end > overlap_size {
-                end.saturating_sub(overlap_size)
+            // 计算下一个块的起始位置（考虑重叠）
+            // 如果文本长度 <= overlap_size，则直接跳到 end（不重叠）
+            // 否则，使用滑动窗口：end - overlap_size
+            if end <= overlap_size {
+                // 文本太短，不使用重叠
+                start = end;
             } else {
-                start + 1
-            };
-            start = std::cmp::max(start + 1, next_start);
+                // 文本足够长，使用滑动窗口
+                start = end - overlap_size;
+            }
         }
 
         Ok(chunks)

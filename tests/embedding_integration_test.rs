@@ -131,7 +131,7 @@ async fn test_batch_processing() {
 
     // 批量处理
     let start = std::time::Instant::now();
-    let results = pipeline.process_documents(documents).await.unwrap();
+    let results = pipeline.process_documents(documents.iter().map(|s| s.to_string()).collect()).await.unwrap();
     let total_duration = start.elapsed();
 
     println!("处理文档数: {}", results.len());
