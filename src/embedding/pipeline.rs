@@ -59,8 +59,13 @@ impl TextChunker {
             let chunk: String = chars[start..end].iter().collect();
             chunks.push(chunk);
 
-            // 确保至少前进 1 个字符
-            start = std::cmp::max(start + 1, end - overlap_size);
+            // 确保至少前进 1 个字符，并防止溢出
+            let next_start = if end > overlap_size {
+                end.saturating_sub(overlap_size)
+            } else {
+                start + 1
+            };
+            start = std::cmp::max(start + 1, next_start);
         }
 
         Ok(chunks)
@@ -74,7 +79,7 @@ impl TextChunker {
             let code = *c as u32;
             code > 0x4E00 && code < 0x9FFF
         }).count();
-        let english_count = char_count - chinese_count;
+        let english_count = char_count.saturating_sub(chinese_count);
 
         (chinese_count / 2) + (english_count / 4)
     }

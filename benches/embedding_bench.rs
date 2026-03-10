@@ -19,42 +19,58 @@ fn bench_token_counting(c: &mut Criterion) {
 
     // 短文本（英文）
     group.bench_function("short_english", |b| {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut counter = TokenCounter::new().unwrap();
         let text = "The quick brown fox jumps over the lazy dog.";
+
         b.iter(|| {
-            black_box(counter.count_text(black_box(text), newclaw::context::ModelType::GPT4))
+            black_box(counter.count_tokens(black_box(text), "gpt-4").unwrap())
         })
     });
 
     // 短文本（中文）
     group.bench_function("short_chinese", |b| {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut counter = TokenCounter::new().unwrap();
         let text = "快速的棕色狐狸跳过懒狗。";
+
         b.iter(|| {
-            black_box(counter.count_text(black_box(text), newclaw::context::ModelType::GLM4))
+            black_box(counter.count_tokens(black_box(text), "glm-4").unwrap())
         })
     });
 
     // 长文本
     group.bench_function("long_text", |b| {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut counter = TokenCounter::new().unwrap();
         let text = "A".repeat(10000);
+
         b.iter(|| {
-            black_box(counter.count_text(black_box(&text), newclaw::context::ModelType::GPT4))
+            black_box(counter.count_tokens(black_box(&text), "gpt-4").unwrap())
         })
     });
 
     // 多条消息
     group.bench_function("multiple_messages", |b| {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut counter = TokenCounter::new().unwrap();
         let messages = vec![
-            newclaw::core::Message {
-                role: newclaw::core::MessageRole::User,
+            newclaw::llm::Message {
+                role: newclaw::llm::MessageRole::User,
                 content: "Hello, how are you?".to_string(),
+                tool_call_id: None,
+                tool_calls: None,
             },
-            newclaw::core::Message {
-                role: newclaw::core::MessageRole::Assistant,
+            newclaw::llm::Message {
+                role: newclaw::llm::MessageRole::Assistant,
                 content: "I'm doing well, thank you!".to_string(),
+                tool_call_id: None,
+                tool_calls: None,
             },
         ];
+
         b.iter(|| {
-            black_box(counter.count_messages(black_box(&messages), newclaw::context::ModelType::GPT4))
+            black_box(counter.count_messages_tokens(black_box(&messages), "gpt-4").unwrap())
         })
     });
 
@@ -132,6 +148,7 @@ fn bench_cache_performance(c: &mut Criterion) {
 
     // 缓存写入
     group.bench_function("cache_write", |b| {
+        let rt = tokio::runtime::Runtime::new().unwrap();
         let cache = EmbeddingCache::new(Default::default());
         let result = EmbeddingResult {
             embedding: vec![0.0; 1536],
@@ -142,12 +159,15 @@ fn bench_cache_performance(c: &mut Criterion) {
 
         b.iter(|| {
             let key = format!("key_{}", black_box(100));
-            black_box(cache.put(key, result.clone()))
+            rt.block_on(async {
+                black_box(cache.put(key, result.clone()).await)
+            })
         })
     });
 
     // 缓存读取（命中）
     group.bench_function("cache_read_hit", |b| {
+        let rt = tokio::runtime::Runtime::new().unwrap();
         let cache = EmbeddingCache::new(Default::default());
         let result = EmbeddingResult {
             embedding: vec![0.0; 1536],
@@ -155,28 +175,38 @@ fn bench_cache_performance(c: &mut Criterion) {
             tokens: 100,
             duration: Duration::from_millis(100),
         };
-        cache.put("test_key".to_string(), result).unwrap();
+        rt.block_on(async {
+            cache.put("test_key".to_string(), result).await;
+        });
 
         b.iter(|| {
-            black_box(cache.get(black_box("test_key")))
+            rt.block_on(async {
+                black_box(cache.get(black_box("test_key")).await)
+            })
         })
     });
 
     // 缓存读取（未命中）
     group.bench_function("cache_read_miss", |b| {
+        let rt = tokio::runtime::Runtime::new().unwrap();
         let cache = EmbeddingCache::new(Default::default());
 
         b.iter(|| {
-            black_box(cache.get(black_box("nonexistent_key")))
+            rt.block_on(async {
+                black_box(cache.get(black_box("nonexistent_key")).await)
+            })
         })
     });
 
     // 缓存统计
     group.bench_function("cache_stats", |b| {
+        let rt = tokio::runtime::Runtime::new().unwrap();
         let cache = EmbeddingCache::new(Default::default());
 
         b.iter(|| {
-            black_box(cache.stats())
+            rt.block_on(async {
+                black_box(cache.stats().await)
+            })
         })
     });
 
@@ -189,24 +219,30 @@ fn bench_cache_scaling(c: &mut Criterion) {
 
     for size in [100, 1000, 5000, 10000].iter() {
         group.bench_with_input(BenchmarkId::from_parameter(size), size, |b, &size| {
+            let rt = tokio::runtime::Runtime::new().unwrap();
             let cache = EmbeddingCache::new(newclaw::embedding::CacheConfig {
                 max_entries: size,
                 ..Default::default()
             });
 
             // 预填充缓存
-            for i in 0..size {
-                let result = EmbeddingResult {
-                    embedding: vec![0.0; 1536],
-                    model: "test".to_string(),
-                    tokens: 100,
-                    duration: Duration::from_millis(100),
-                };
-                cache.put(format!("key_{}", i), result).unwrap();
-            }
+            rt.block_on(async {
+                for i in 0..size {
+                    let result = EmbeddingResult {
+                        embedding: vec![0.0; 1536],
+                        model: "test".to_string(),
+                        tokens: 100,
+                        duration: Duration::from_millis(100),
+                    };
+                    cache.put(format!("key_{}", i), result).await;
+                }
+            });
 
             b.iter(|| {
-                black_box(cache.get(&format!("key_{}", black_box(size / 2))))
+                let key = format!("key_{}", black_box(size / 2));
+                rt.block_on(async {
+                    black_box(cache.get(&key).await)
+                })
             })
         });
     }
