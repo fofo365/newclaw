@@ -5,12 +5,16 @@ pub mod registry;
 pub mod executor;
 pub mod permissions;
 pub mod error;
+pub mod files;
 
 // 重新导出主要类型
 pub use registry::ToolRegistry;
 pub use executor::ToolExecutor;
 pub use permissions::PermissionManager;
 pub use error::{ToolError, ToolResult};
+
+// 文件操作工具
+pub use files::{ReadTool, WriteTool, EditTool};
 
 // MCP 工具类型（与 MCP 层兼容）
 pub use crate::mcp::tools::{ToolMetadata, ToolCall, ToolResult as McpToolResult, ToolContent};
