@@ -301,7 +301,7 @@ mod tests {
 
     #[test]
     fn test_strategy_engine() {
-        let mut engine = StrategyEngine::new().unwrap();
+        let engine = StrategyEngine::new().unwrap();
 
         // 测试策略注册
         let strategies = engine.list_strategies();
@@ -321,18 +321,24 @@ mod tests {
             Message {
                 role: MessageRole::User,
                 content: "First message".to_string(),
+                tool_calls: None,
+                tool_call_id: None,
             },
             Message {
                 role: MessageRole::Assistant,
                 content: "Response".to_string(),
+                tool_calls: None,
+                tool_call_id: None,
             },
             Message {
                 role: MessageRole::User,
                 content: "Second message".to_string(),
+                tool_calls: None,
+                tool_call_id: None,
             },
         ];
 
-        let result = engine.apply(messages, StrategyType::Balanced, 100, "gpt-4").await.unwrap();
+        let result = engine.apply(&messages, StrategyType::Balanced, 100, "gpt-4").await.unwrap();
         assert!(!result.is_empty());
     }
 
@@ -344,6 +350,8 @@ mod tests {
         let messages = vec![Message {
             role: MessageRole::User,
             content: "Test message".to_string(),
+            tool_calls: None,
+            tool_call_id: None,
         }];
 
         // 手动添加一些执行历史

@@ -29,6 +29,7 @@ pub use messages::{
     MessageType, BaseMessage, TextMessage, RichTextMessage, CardMessage,
     ImageMessage, FileMessage, MessageSender, ReceiveIdType,
     TextContent, RichTextContent, CardContent, ImageContent, FileContent,
+    CardText, CardElement, RichTextParagraph, TextStyle,
 };
 pub use retry::{
     RetryExecutor, RetryStrategy, RetryContext, RetryManager, RetryMetrics,

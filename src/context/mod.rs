@@ -129,6 +129,8 @@ mod tests {
             crate::llm::Message {
                 role: crate::llm::MessageRole::User,
                 content: "Hello, world!".to_string(),
+                tool_calls: None,
+                tool_call_id: None,
             },
         ];
 

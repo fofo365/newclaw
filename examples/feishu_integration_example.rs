@@ -274,17 +274,23 @@ async fn retry_mechanism_demo() -> WebSocketResult<()> {
             println!("  ⚠️  第 {} 次失败: {:?}", context.attempt, error);
         });
     
-    let mut attempt_count = 0;
-    let result = executor.execute(|| async {
-        attempt_count += 1;
-        if attempt_count < 3 {
-            Err(newclaw::feishu_websocket::WebSocketError::ConnectionFailed(
-                "模拟连接失败".to_string(),
-            ))
-        } else {
-            Ok("操作成功！".to_string())
-        }
-    }).await;
+    let attempt_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let result = {
+        let attempt_count = attempt_count.clone();
+        executor.execute(move || {
+            let attempt_count = attempt_count.clone();
+            async move {
+                let count = attempt_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if count < 3 {
+                    Err(newclaw::feishu_websocket::WebSocketError::ConnectionFailed(
+                        "模拟连接失败".to_string(),
+                    ))
+                } else {
+                    Ok("操作成功！".to_string())
+                }
+            }
+        }).await
+    };
     
     println!("  结果: {:?}", result);
     

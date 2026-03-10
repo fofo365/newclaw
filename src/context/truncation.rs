@@ -314,14 +314,20 @@ mod tests {
             Message {
                 role: MessageRole::User,
                 content: "First message".to_string(),
+                tool_calls: None,
+                tool_call_id: None,
             },
             Message {
                 role: MessageRole::Assistant,
                 content: "Response to first".to_string(),
+                tool_calls: None,
+                tool_call_id: None,
             },
             Message {
                 role: MessageRole::User,
                 content: "Second message".to_string(),
+                tool_calls: None,
+                tool_call_id: None,
             },
         ];
 
