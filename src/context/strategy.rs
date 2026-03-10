@@ -58,6 +58,7 @@ pub struct StrategyResult {
 }
 
 /// 策略引擎
+#[derive(Debug)]
 pub struct StrategyEngine {
     /// 注册的策略
     strategies: HashMap<StrategyType, StrategyDefinition>,

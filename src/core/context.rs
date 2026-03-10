@@ -1,16 +1,31 @@
-// Context Manager - Handles message storage and retrieval with vector search
+// Context Manager - Unified context management with vector search and token counting
+//
+// This module provides the main ContextManager implementation that combines:
+// - Message storage (SQLite)
+// - Vector search (semantic retrieval)
+// - Token counting (multi-model support)
+// - Intelligent truncation strategies
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use crate::vector::{VectorStore, MemoryVectorStore, VectorDocument, DocumentMetadata, mock_embedding};
+use crate::context::{TokenCounter, TruncationStrategy, StrategyEngine, StrategyType};
 
 #[derive(Debug)]
 pub struct ContextManager {
     db: Connection,
     pub config: ContextConfig,
     vector_store: MemoryVectorStore,
+    // Token counting capabilities
+    token_counter: Arc<RwLock<TokenCounter>>,
+    // Truncation strategy
+    truncation_strategy: Arc<RwLock<TruncationStrategy>>,
+    // Strategy engine
+    strategy_engine: Arc<RwLock<StrategyEngine>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -19,6 +34,12 @@ pub struct ContextConfig {
     pub max_tokens: usize,
     pub overlap_tokens: usize,
     pub enable_vector_search: bool,
+    /// Default model for token counting
+    pub default_model: String,
+    /// Token buffer (reserved space)
+    pub token_buffer: usize,
+    /// Default strategy
+    pub default_strategy: StrategyType,
 }
 
 impl Default for ContextConfig {
@@ -28,6 +49,9 @@ impl Default for ContextConfig {
             max_tokens: 8000,
             overlap_tokens: 200,
             enable_vector_search: true,
+            default_model: "gpt-4".to_string(),
+            token_buffer: 512,
+            default_strategy: StrategyType::Balanced,
         }
     }
 }
@@ -70,8 +94,20 @@ impl ContextManager {
         )?;
 
         let vector_store = MemoryVectorStore::new();
+        
+        // Initialize token counter and strategies
+        let token_counter = Arc::new(RwLock::new(TokenCounter::new()?));
+        let truncation_strategy = Arc::new(RwLock::new(TruncationStrategy::default()));
+        let strategy_engine = Arc::new(RwLock::new(StrategyEngine::new()?));
 
-        Ok(Self { db, config, vector_store })
+        Ok(Self { 
+            db, 
+            config, 
+            vector_store,
+            token_counter,
+            truncation_strategy,
+            strategy_engine,
+        })
     }
 
     pub fn add_message(&mut self, message: &str, source: &str) -> Result<String> {
@@ -196,6 +232,148 @@ impl ContextManager {
         
         Ok(chunks)
     }
+    
+    // ===== Token Counting Methods =====
+    
+    /// Count tokens for a text using the configured model
+    pub fn count_tokens(&self, text: &str) -> Result<usize> {
+        // Use the estimate_tokens function for now
+        // TODO: Integrate with TokenCounter for multi-model support
+        Ok(estimate_tokens(text))
+    }
+    
+    /// Count tokens for messages using the configured model
+    pub async fn count_messages_tokens(&self, messages: &[crate::llm::Message]) -> Result<usize> {
+        // This would use the TokenCounter in an async context
+        // For now, use a simple implementation
+        let mut total = 0;
+        for msg in messages {
+            total += self.count_tokens(&msg.content)?;
+        }
+        Ok(total)
+    }
+    
+    /// Estimate token usage for a conversation
+    pub async fn estimate_token_usage(&self, messages: &[crate::llm::Message]) -> Result<TokenUsageEstimate> {
+        let input_tokens = self.count_messages_tokens(messages).await?;
+        let output_tokens = input_tokens / 4; // Rough estimate
+        
+        Ok(TokenUsageEstimate {
+            input_tokens,
+            output_tokens,
+            total_tokens: input_tokens + output_tokens,
+        })
+    }
+    
+    // ===== Strategy Methods =====
+    
+    /// Apply a truncation strategy to messages
+    pub async fn apply_truncation_strategy(
+        &self,
+        messages: Vec<crate::llm::Message>,
+        strategy: StrategyType,
+    ) -> Result<Vec<crate::llm::Message>> {
+        // This would integrate with TruncationStrategy
+        // For now, implement simple logic
+        let max_tokens = self.config.max_tokens - self.config.token_buffer;
+        
+        match strategy {
+            StrategyType::MinimizeTokens => {
+                // Keep only the most recent messages
+                let mut result = Vec::new();
+                let mut current_tokens = 0;
+                
+                for msg in messages.iter().rev() {
+                    let tokens = self.count_tokens(&msg.content)?;
+                    if current_tokens + tokens > max_tokens {
+                        break;
+                    }
+                    result.insert(0, msg.clone());
+                    current_tokens += tokens;
+                }
+                
+                Ok(result)
+            }
+            StrategyType::Balanced => {
+                // Keep system messages and recent messages
+                let mut result = Vec::new();
+                let mut current_tokens = 0;
+                
+                // Keep system messages first
+                for msg in &messages {
+                    if matches!(msg.role, crate::llm::MessageRole::System) {
+                        result.push(msg.clone());
+                        current_tokens += self.count_tokens(&msg.content)?;
+                    }
+                }
+                
+                // Add recent messages
+                for msg in messages.iter().rev() {
+                    if matches!(msg.role, crate::llm::MessageRole::System) {
+                        continue;
+                    }
+                    let tokens = self.count_tokens(&msg.content)?;
+                    if current_tokens + tokens > max_tokens {
+                        break;
+                    }
+                    result.insert(result.len().saturating_sub(1), msg.clone());
+                    current_tokens += tokens;
+                }
+                
+                Ok(result)
+            }
+            _ => {
+                // Default: keep recent messages
+                let mut result = Vec::new();
+                let mut current_tokens = 0;
+                
+                for msg in messages.iter().rev() {
+                    let tokens = self.count_tokens(&msg.content)?;
+                    if current_tokens + tokens > max_tokens {
+                        break;
+                    }
+                    result.insert(0, msg.clone());
+                    current_tokens += tokens;
+                }
+                
+                Ok(result)
+            }
+        }
+    }
+    
+    /// Get statistics about the context manager
+    pub fn get_stats(&self) -> ContextManagerStats {
+        ContextManagerStats {
+            total_chunks: self.count_chunks().unwrap_or(0),
+            max_chunks: self.config.max_chunks,
+            max_tokens: self.config.max_tokens,
+            vector_search_enabled: self.config.enable_vector_search,
+        }
+    }
+    
+    /// Count the number of chunks in storage
+    fn count_chunks(&self) -> Result<usize> {
+        let mut stmt = self.db.prepare("SELECT COUNT(*) FROM context_chunks")?;
+        let count: i64 = stmt.query_row([], |row| row.get(0))?;
+        Ok(count as usize)
+    }
+}
+
+/// Token usage estimate
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TokenUsageEstimate {
+    pub input_tokens: usize,
+    pub output_tokens: usize,
+    pub total_tokens: usize,
+}
+
+/// Context manager statistics
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextManagerStats {
+    pub total_chunks: usize,
+    pub max_chunks: usize,
+    pub max_tokens: usize,
+    pub vector_search_enabled: bool,
 }
 
 pub fn estimate_tokens(text: &str) -> usize {

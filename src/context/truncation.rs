@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// 截断策略
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum TruncationStrategyType {
     /// 智能截断：基于相关性排序
     Smart,
@@ -55,6 +55,7 @@ impl Default for TruncationConfig {
 }
 
 /// 截断策略实现
+#[derive(Debug)]
 pub struct TruncationStrategy {
     config: TruncationConfig,
     token_counter: TokenCounter,

@@ -28,10 +28,22 @@ pub mod dashboard;
 // v0.5.0 - Context Manager (智能上下文管理)
 pub mod context;
 
+// v0.5.0 - Vector Embedding (向量嵌入)
+pub mod embedding;
+
 // Re-export main types
 pub use core::AgentEngine;
 pub use core::{ContextManager, ContextConfig, ContextChunk};
 pub use core::{StrategyEngine, Strategy, StrategyType};
+
+// v0.5.0 - Embedding re-exports
+pub use embedding::{
+    EmbeddingClient, OpenAIEmbeddingClient, EmbeddingConfig,
+    EmbeddingCache, CacheConfig,
+    EmbeddingPipeline, TextChunker,
+    EmbeddingModel, EmbeddingOptions,
+    EmbeddingResult, BatchEmbeddingResult,
+};
 
 // v0.2.0 - Security re-exports
 pub use security::{

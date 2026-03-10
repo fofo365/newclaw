@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use tiktoken_rs::get_bpe_from_model;
 
 /// Token 计数器
+#[derive(Debug)]
 pub struct TokenCounter {
     /// 缓存的编码器
     encoders: HashMap<String, tiktoken_rs::CoreBPE>,
