@@ -9,6 +9,7 @@ pub mod wecom;
 pub mod qq;
 pub mod telegram;
 pub mod discord;
+pub mod dingtalk;
 pub mod agp;
 
 pub use feishu::{
@@ -129,6 +130,13 @@ pub use discord::{
     InteractionData,
     Embed,
     EmbedField,
+};
+
+// DingTalk Bot exports
+pub use dingtalk::{
+    DingTalkConfig,
+    DingTalkClient,
+    DingTalkBot,
 };
 
 // AGP (Agent Gateway Protocol) Channel exports
