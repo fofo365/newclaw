@@ -59,15 +59,19 @@ impl TextChunker {
             let chunk: String = chars[start..end].iter().collect();
             chunks.push(chunk);
 
+            // 如果已经到达末尾，退出循环
+            if end >= chars.len() {
+                break;
+            }
+
             // 计算下一个块的起始位置（考虑重叠）
-            // 如果文本长度 <= overlap_size，则直接跳到 end（不重叠）
-            // 否则，使用滑动窗口：end - overlap_size
-            if end <= overlap_size {
-                // 文本太短，不使用重叠
-                start = end;
+            let next_start = end.saturating_sub(overlap_size);
+            
+            // 防止死循环：确保 next_start > start
+            if next_start <= start {
+                start = end; // 不重叠，直接跳到 end
             } else {
-                // 文本足够长，使用滑动窗口
-                start = end - overlap_size;
+                start = next_start;
             }
         }
 
