@@ -14,6 +14,7 @@ pub mod subagents;
 pub mod nodes;
 pub mod feishu;
 pub mod tts;
+pub mod orchestrator;
 pub mod init;
 
 pub use error::ToolError;
@@ -31,6 +32,7 @@ pub use subagents::{SubagentsTool, SubagentStore, SubagentInfo};
 pub use nodes::{NodesTool, NodeStore, NodeInfo, NodeType, NodeStatus, NodeCapability};
 pub use feishu::{FeishuDocTool, FeishuBitableTool, FeishuDriveTool, FeishuWikiTool, FeishuChatTool};
 pub use tts::TtsTool;
+pub use orchestrator::{ToolOrchestrator, OrchestrationPlan, ToolStep, ErrorHandling};
 pub use init::init_builtin_tools;
 
 use async_trait::async_trait;
