@@ -1,13 +1,18 @@
 // 记忆系统模块
 
+mod vector_index;
+
 use crate::tools::{Tool, ToolMetadata, Value};
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
+use tokio::sync::RwLock;
 use tracing::{info, warn};
+use vector_index::VectorIndex;
 
 /// 记忆条目
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,6 +29,7 @@ pub struct MemoryTool {
     memory_dir: PathBuf,
     daily_dir: PathBuf,
     openclaw_workspace: PathBuf,
+    vector_index: Arc<RwLock<Option<VectorIndex>>>,
 }
 
 impl MemoryTool {
@@ -34,6 +40,7 @@ impl MemoryTool {
             memory_dir,
             daily_dir,
             openclaw_workspace,
+            vector_index: Arc::new(RwLock::new(None)),
         }
     }
 
