@@ -8,6 +8,7 @@ pub mod web;
 pub mod exec;
 pub mod browser;
 pub mod canvas;
+pub mod memory;
 pub mod init;
 
 pub use error::ToolError;
@@ -19,6 +20,7 @@ pub use web::{WebFetchTool, WebSearchTool};
 pub use exec::ExecTool;
 pub use browser::BrowserTool;
 pub use canvas::CanvasTool;
+pub use memory::MemoryTool;
 pub use init::init_builtin_tools;
 
 use async_trait::async_trait;
