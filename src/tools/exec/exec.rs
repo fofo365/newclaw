@@ -1,11 +1,13 @@
 // Shell 命令执行工具
 
+use serde_json::Value as JsonValue;
+
 use std::process::Stdio;
 use async_trait::async_trait;
 use tokio::process::{Command, Child};
 use tokio::io::{AsyncReadExt, AsyncBufReadExt, BufReader};
 
-use crate::tools::{Tool, ToolError, ToolResult, ToolMetadata};
+use crate::tools::{Tool, ToolMetadata};
 
 /// Shell 执行工具
 pub struct ExecTool {
@@ -37,18 +39,18 @@ impl ExecTool {
     }
     
     /// 验证命令是否允许
-    fn validate_command(&self, command: &str) -> ToolResult<()> {
+    fn validate_command(&self, command: &str) -> anyhow::Result<()> {
         if self.allowed_commands.is_empty() {
             return Ok(());
         }
-        
+
         // 提取命令名
         let cmd_name = command.split_whitespace().next().unwrap_or("");
-        
+
         if self.allowed_commands.iter().any(|c| c == cmd_name) {
             Ok(())
         } else {
-            Err(ToolError::PermissionDenied(format!(
+            Err(anyhow::anyhow!(format!(
                 "命令 '{}' 不在白名单中",
                 cmd_name
             )))
@@ -62,7 +64,7 @@ impl Tool for ExecTool {
         ToolMetadata {
             name: "exec".to_string(),
             description: "执行 shell 命令".to_string(),
-            input_schema: serde_json::json!({
+            parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "command": {
@@ -85,11 +87,11 @@ impl Tool for ExecTool {
         }
     }
     
-    async fn execute(&self, args: serde_json::Value) -> ToolResult<serde_json::Value> {
+    async fn execute(&self, args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
         // 解析参数
         let command = args["command"]
             .as_str()
-            .ok_or_else(|| ToolError::InvalidArguments("缺少 command 参数".to_string()))?;
+            .ok_or_else(|| anyhow::anyhow!("缺少 command 参数".to_string()))?;
         
         let timeout = args["timeout"].as_u64().unwrap_or(self.default_timeout);
         let cwd = args["cwd"].as_str();
@@ -112,8 +114,8 @@ impl Tool for ExecTool {
             cmd.output()
         )
         .await
-        .map_err(|_| ToolError::Timeout(format!("命令执行超时（{} 秒）", timeout)))?
-        .map_err(|e| ToolError::ExecutionFailed(format!("执行失败: {}", e)))?;
+        .map_err(|_| anyhow::anyhow!("命令执行超时（{} 秒）", timeout))?
+        .map_err(|e| anyhow::anyhow!(format!("执行失败: {}", e)))?;
         
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();

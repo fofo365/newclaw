@@ -2,8 +2,9 @@
 
 use std::path::Path;
 use async_trait::async_trait;
+use serde_json::Value as JsonValue;
 
-use crate::tools::{Tool, ToolError, ToolResult, ToolMetadata};
+use crate::tools::{Tool, ToolMetadata};
 
 /// 文件写入工具
 pub struct WriteTool {
@@ -26,20 +27,20 @@ impl WriteTool {
     }
     
     /// 验证路径是否在允许范围内
-    fn validate_path(&self, path: &Path) -> ToolResult<()> {
+    fn validate_path(&self, path: &Path) -> anyhow::Result<()> {
         // 对于不存在的文件，检查父目录
         let check_path = if path.exists() {
             path.canonicalize()
-                .map_err(|e| ToolError::ExecutionFailed(format!("路径验证失败: {}", e)))?
+                .map_err(|e| anyhow::anyhow!(format!("路径验证失败: {}", e)))?
         } else {
             let parent = path.parent()
-                .ok_or_else(|| ToolError::InvalidArguments("无效路径".to_string()))?;
+                .ok_or_else(|| anyhow::anyhow!("无效路径".to_string()))?;
             
             if parent.exists() {
                 parent.canonicalize()
-                    .map_err(|e| ToolError::ExecutionFailed(format!("路径验证失败: {}", e)))?
+                    .map_err(|e| anyhow::anyhow!(format!("路径验证失败: {}", e)))?
             } else {
-                return Err(ToolError::PermissionDenied(
+                return Err(anyhow::anyhow!(
                     "父目录不存在".to_string()
                 ));
             }
@@ -51,7 +52,7 @@ impl WriteTool {
             }
         }
         
-        Err(ToolError::PermissionDenied(format!(
+        Err(anyhow::anyhow!(format!(
             "路径 {:?} 不在允许的目录范围内",
             path
         )))
@@ -64,7 +65,7 @@ impl Tool for WriteTool {
         ToolMetadata {
             name: "write".to_string(),
             description: "写入文件内容（创建或覆盖）".to_string(),
-            input_schema: serde_json::json!({
+            parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "path": {
@@ -81,15 +82,15 @@ impl Tool for WriteTool {
         }
     }
     
-    async fn execute(&self, args: serde_json::Value) -> ToolResult<serde_json::Value> {
+    async fn execute(&self, args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
         // 解析参数
         let path_str = args["path"]
             .as_str()
-            .ok_or_else(|| ToolError::InvalidArguments("缺少 path 参数".to_string()))?;
+            .ok_or_else(|| anyhow::anyhow!("缺少 path 参数".to_string()))?;
         
         let content = args["content"]
             .as_str()
-            .ok_or_else(|| ToolError::InvalidArguments("缺少 content 参数".to_string()))?;
+            .ok_or_else(|| anyhow::anyhow!("缺少 content 参数".to_string()))?;
         
         let path = Path::new(path_str);
         
@@ -101,19 +102,19 @@ impl Tool for WriteTool {
             if !parent.exists() {
                 tokio::fs::create_dir_all(parent)
                     .await
-                    .map_err(|e| ToolError::ExecutionFailed(format!("创建目录失败: {}", e)))?;
+                    .map_err(|e| anyhow::anyhow!(format!("创建目录失败: {}", e)))?;
             }
         }
         
         // 写入文件
         tokio::fs::write(path, content)
             .await
-            .map_err(|e| ToolError::ExecutionFailed(format!("写入文件失败: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!(format!("写入文件失败: {}", e)))?;
         
         // 获取文件信息
         let metadata = tokio::fs::metadata(path)
             .await
-            .map_err(|e| ToolError::ExecutionFailed(format!("获取文件信息失败: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!(format!("获取文件信息失败: {}", e)))?;
         
         Ok(serde_json::json!({
             "success": true,

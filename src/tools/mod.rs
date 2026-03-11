@@ -1,39 +1,71 @@
-// NewClaw 工具执行引擎
-// 提供与 OpenClaw 相当的工具能力
-
-pub mod registry;
-pub mod executor;
-pub mod permissions;
+// 工具系统模块
 pub mod error;
+pub mod executor;
 pub mod files;
-pub mod exec;
+pub mod permissions;
+pub mod registry;
 pub mod web;
+pub mod exec;
+pub mod browser;
+pub mod canvas;
+pub mod init;
 
-// 重新导出主要类型
-pub use registry::ToolRegistry;
+pub use error::ToolError;
 pub use executor::ToolExecutor;
+pub use files::{EditTool, ReadTool, WriteTool};
 pub use permissions::PermissionManager;
-pub use error::{ToolError, ToolResult};
+pub use registry::ToolRegistry;
+pub use web::{WebFetchTool, WebSearchTool};
+pub use exec::ExecTool;
+pub use browser::BrowserTool;
+pub use canvas::CanvasTool;
+pub use init::init_builtin_tools;
 
-// 文件操作工具
-pub use files::{ReadTool, WriteTool, EditTool};
+use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 
-// Shell 执行工具
-pub use exec::{ExecTool, ProcessTool};
-pub use crate::tools::exec::ProcessManager;
-
-// 网络请求工具
-pub use web::{WebSearchTool, WebFetchTool};
-
-// MCP 工具类型（与 MCP 层兼容）
-pub use crate::mcp::tools::{ToolMetadata, ToolCall, ToolResult as McpToolResult, ToolContent};
-
-/// 工具 trait - 所有工具必须实现
-#[async_trait::async_trait]
+/// 工具 trait 定义
+#[async_trait]
 pub trait Tool: Send + Sync {
     /// 工具元数据
     fn metadata(&self) -> ToolMetadata;
-    
+
     /// 执行工具
-    async fn execute(&self, args: serde_json::Value) -> Result<serde_json::Value, ToolError>;
+    async fn execute(&self, args: JsonValue) -> anyhow::Result<JsonValue>;
+}
+
+/// 工具元数据
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolMetadata {
+    pub name: String,
+    pub description: String,
+    pub parameters: JsonValue,
+}
+
+/// 工具执行结果类型（简写）
+pub type Value = JsonValue;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tool_metadata() {
+        let metadata = ToolMetadata {
+            name: "test_tool".to_string(),
+            description: "A test tool".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "input": {
+                        "type": "string"
+                    }
+                }
+            }),
+        };
+
+        assert_eq!(metadata.name, "test_tool");
+        assert!(metadata.parameters.is_object());
+    }
 }

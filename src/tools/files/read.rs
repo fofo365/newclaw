@@ -3,7 +3,7 @@
 use std::path::Path;
 use async_trait::async_trait;
 
-use crate::tools::{Tool, ToolError, ToolResult, ToolMetadata};
+use crate::tools::{Tool, ToolMetadata};
 
 /// 文件读取工具
 pub struct ReadTool {
@@ -18,28 +18,28 @@ impl ReadTool {
             allowed_dirs: vec![std::env::current_dir().unwrap_or_default()],
         }
     }
-    
+
     /// 设置允许的目录
     pub fn with_allowed_dirs(mut self, dirs: Vec<std::path::PathBuf>) -> Self {
         self.allowed_dirs = dirs;
         self
     }
-    
+
     /// 验证路径是否在允许范围内
-    fn validate_path(&self, path: &Path) -> ToolResult<()> {
+    fn validate_path(&self, path: &Path) -> anyhow::Result<()> {
         let canonical = path.canonicalize()
-            .map_err(|e| ToolError::ExecutionFailed(format!("路径不存在: {}", e)))?;
-        
+            .map_err(|e| anyhow::anyhow!("路径不存在: {}", e))?;
+
         for dir in &self.allowed_dirs {
             if canonical.starts_with(dir) {
                 return Ok(());
             }
         }
-        
-        Err(ToolError::PermissionDenied(format!(
+
+        Err(anyhow::anyhow!(
             "路径 {:?} 不在允许的目录范围内",
             path
-        )))
+        ))
     }
 }
 
@@ -49,7 +49,7 @@ impl Tool for ReadTool {
         ToolMetadata {
             name: "read".to_string(),
             description: "读取文件内容".to_string(),
-            input_schema: serde_json::json!({
+            parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "path": {
@@ -72,37 +72,37 @@ impl Tool for ReadTool {
         }
     }
     
-    async fn execute(&self, args: serde_json::Value) -> ToolResult<serde_json::Value> {
+    async fn execute(&self, args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
         // 解析参数
         let path_str = args["path"]
             .as_str()
-            .ok_or_else(|| ToolError::InvalidArguments("缺少 path 参数".to_string()))?;
-        
+            .ok_or_else(|| anyhow::anyhow!("缺少 path 参数"))?;
+
         let offset = args["offset"].as_u64().unwrap_or(1) as usize;
         let limit = args["limit"].as_u64().unwrap_or(2000) as usize;
-        
+
         let path = Path::new(path_str);
-        
+
         // 验证路径
         self.validate_path(path)?;
-        
+
         // 读取文件
         let content = tokio::fs::read_to_string(path)
             .await
-            .map_err(|e| ToolError::ExecutionFailed(format!("读取文件失败: {}", e)))?;
-        
+            .map_err(|e| anyhow::anyhow!("读取文件失败: {}", e))?;
+
         // 分行处理
         let lines: Vec<&str> = content.lines().collect();
         let total_lines = lines.len();
-        
+
         // 应用 offset 和 limit
         let start = (offset.saturating_sub(1)).min(total_lines);
         let end = (start + limit).min(total_lines);
         let selected_lines = &lines[start..end];
-        
+
         // 构建结果
         let result = selected_lines.join("\n");
-        
+
         Ok(serde_json::json!({
             "content": result,
             "total_lines": total_lines,

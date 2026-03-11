@@ -2,9 +2,10 @@
 
 use std::sync::Arc;
 use std::time::Duration;
+use serde_json::Value as JsonValue;
 
-use super::{ToolRegistry, ToolError, ToolResult, ToolCall, ToolContent};
-use crate::mcp::tools::ToolResult as McpToolResult;
+use super::ToolRegistry;
+use crate::mcp::tools::{ToolCall, ToolContent, ToolResult as McpToolResult};
 
 /// 工具执行器
 pub struct ToolExecutor {
@@ -28,16 +29,15 @@ impl ToolExecutor {
     }
     
     /// 执行工具调用
-    pub async fn execute(&self, call: ToolCall) -> ToolResult<McpToolResult> {
+    pub async fn execute(&self, call: ToolCall) -> anyhow::Result<McpToolResult> {
         // 执行工具（带超时）
         let result = tokio::time::timeout(
             self.timeout,
             self.registry.call(&call.name, call.arguments)
         )
         .await
-        .map_err(|_| ToolError::Timeout(format!("工具 {} 执行超时", call.name)))?
-        .map_err(|e| e)?;
-        
+        .map_err(|_| anyhow::anyhow!("工具 {} 执行超时", call.name))??;
+
         // 转换为 MCP 工具结果
         Ok(McpToolResult {
             content: vec![ToolContent::Text {
@@ -46,15 +46,15 @@ impl ToolExecutor {
             is_error: false,
         })
     }
-    
+
     /// 批量执行工具调用
-    pub async fn execute_batch(&self, calls: Vec<ToolCall>) -> Vec<ToolResult<McpToolResult>> {
+    pub async fn execute_batch(&self, calls: Vec<ToolCall>) -> Vec<anyhow::Result<McpToolResult>> {
         let mut results = Vec::with_capacity(calls.len());
-        
+
         for call in calls {
             results.push(self.execute(call).await);
         }
-        
+
         results
     }
 }

@@ -3,9 +3,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use serde_json::Value as JsonValue;
 
-use super::{Tool, ToolError, ToolResult, ToolMetadata, ToolCall, ToolContent};
-use crate::mcp::tools::ToolResult as McpToolResult;
+use super::{Tool, ToolMetadata};
 
 /// 工具注册表
 pub struct ToolRegistry {
@@ -21,7 +21,7 @@ impl ToolRegistry {
     }
     
     /// 注册工具
-    pub async fn register<T: Tool + 'static>(&self, tool: T) -> ToolResult<()> {
+    pub async fn register<T: Tool + 'static>(&self, tool: T) -> anyhow::Result<()> {
         let metadata = tool.metadata();
         let name = metadata.name.clone();
         
@@ -32,11 +32,16 @@ impl ToolRegistry {
     }
     
     /// 注销工具
-    pub async fn unregister(&self, name: &str) -> ToolResult<()> {
+    pub async fn unregister(&self, name: &str) -> anyhow::Result<()> {
         let mut tools = self.tools.write().await;
-        tools.remove(name)
-            .map(|_| ())
-            .ok_or_else(|| ToolError::NotFound(name.to_string()))
+        let exists = tools.contains_key(name);
+        tools.remove(name);
+
+        if exists {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Tool not found: {}", name))
+        }
     }
     
     /// 列出所有工具元数据
@@ -52,11 +57,11 @@ impl ToolRegistry {
     }
     
     /// 调用工具（内部方法）
-    pub async fn call(&self, name: &str, args: serde_json::Value) -> ToolResult<serde_json::Value> {
+    pub async fn call(&self, name: &str, args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
         let tools = self.tools.read().await;
         let tool = tools.get(name)
-            .ok_or_else(|| ToolError::NotFound(name.to_string()))?;
-        
+            .ok_or_else(|| anyhow::anyhow!("Tool not found: {}", name))?;
+
         tool.execute(args).await
     }
 }
@@ -79,11 +84,11 @@ mod tests {
             ToolMetadata {
                 name: "test".to_string(),
                 description: "测试工具".to_string(),
-                input_schema: serde_json::json!({"type": "object"}),
+                parameters: serde_json::json!({"type": "object"}),
             }
         }
         
-        async fn execute(&self, _args: serde_json::Value) -> ToolResult<serde_json::Value> {
+        async fn execute(&self, _args: serde_json::Value) -> anyhow::Result<JsonValue> {
             Ok(serde_json::json!({"result": "ok"}))
         }
     }

@@ -51,12 +51,12 @@ impl PermissionManager {
     }
     
     /// 检查权限
-    pub async fn check(&self, permission: Permission) -> Result<(), ToolError> {
+    pub async fn check(&self, permission: Permission) -> anyhow::Result<()> {
         let allowed = self.allowed.read().await;
         if allowed.contains(&permission) {
             Ok(())
         } else {
-            Err(ToolError::PermissionDenied(format!("{:?}", permission)))
+            Err(anyhow::anyhow!("Permission denied: {:?}", permission))
         }
     }
     
@@ -67,16 +67,16 @@ impl PermissionManager {
     }
     
     /// 检查工具权限
-    pub async fn check_tool(&self, tool: &str) -> Result<(), ToolError> {
+    pub async fn check_tool(&self, tool: &str) -> anyhow::Result<()> {
         let tool_perms = self.tool_permissions.read().await;
         if let Some(required) = tool_perms.get(tool) {
             let allowed = self.allowed.read().await;
             for perm in required {
                 if !allowed.contains(perm) {
-                    return Err(ToolError::PermissionDenied(format!(
+                    return Err(anyhow::anyhow!(
                         "工具 {} 需要权限 {:?}",
                         tool, perm
-                    )));
+                    ));
                 }
             }
         }

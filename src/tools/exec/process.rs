@@ -1,5 +1,7 @@
 // 后台进程管理工具
 
+use serde_json::Value as JsonValue;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use async_trait::async_trait;
@@ -7,7 +9,7 @@ use tokio::sync::RwLock;
 use tokio::process::{Command, Child};
 use tokio::io::{AsyncBufReadExt, BufReader};
 
-use crate::tools::{Tool, ToolError, ToolResult, ToolMetadata};
+use crate::tools::{Tool, ToolMetadata};
 
 /// 后台进程管理器
 pub struct ProcessManager {
@@ -40,7 +42,7 @@ impl Tool for ProcessTool {
         ToolMetadata {
             name: "process".to_string(),
             description: "管理后台进程".to_string(),
-            input_schema: serde_json::json!({
+            parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "action": {
@@ -66,25 +68,25 @@ impl Tool for ProcessTool {
         }
     }
     
-    async fn execute(&self, args: serde_json::Value) -> ToolResult<serde_json::Value> {
+    async fn execute(&self, args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
         let action = args["action"]
             .as_str()
-            .ok_or_else(|| ToolError::InvalidArguments("缺少 action 参数".to_string()))?;
+            .ok_or_else(|| anyhow::anyhow!("缺少 action 参数".to_string()))?;
         
         match action {
             "start" => self.start_process(&args).await,
             "list" => self.list_processes().await,
             "kill" => self.kill_process(&args).await,
-            _ => Err(ToolError::InvalidArguments(format!("未知操作: {}", action))),
+            _ => Err(anyhow::anyhow!(format!("未知操作: {}", action))),
         }
     }
 }
 
 impl ProcessTool {
-    async fn start_process(&self, args: &serde_json::Value) -> ToolResult<serde_json::Value> {
+    async fn start_process(&self, args: &serde_json::Value) -> anyhow::Result<JsonValue> {
         let command = args["command"]
             .as_str()
-            .ok_or_else(|| ToolError::InvalidArguments("缺少 command 参数".to_string()))?;
+            .ok_or_else(|| anyhow::anyhow!("缺少 command 参数".to_string()))?;
         
         let name = args["name"]
             .as_str()
@@ -95,7 +97,7 @@ impl ProcessTool {
         cmd.arg("-c").arg(command);
         
         let child = cmd.spawn()
-            .map_err(|e| ToolError::ExecutionFailed(format!("启动进程失败: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!(format!("启动进程失败: {}", e)))?;
         
         let pid = child.id().unwrap_or(0);
         
@@ -110,7 +112,7 @@ impl ProcessTool {
         }))
     }
     
-    async fn list_processes(&self) -> ToolResult<serde_json::Value> {
+    async fn list_processes(&self) -> anyhow::Result<JsonValue> {
         let processes = self.manager.processes.read().await;
         let list: Vec<_> = processes
             .iter()
@@ -128,10 +130,10 @@ impl ProcessTool {
         }))
     }
     
-    async fn kill_process(&self, args: &serde_json::Value) -> ToolResult<serde_json::Value> {
+    async fn kill_process(&self, args: &serde_json::Value) -> anyhow::Result<JsonValue> {
         let pid = args["pid"]
             .as_u64()
-            .ok_or_else(|| ToolError::InvalidArguments("缺少 pid 参数".to_string()))? as i32;
+            .ok_or_else(|| anyhow::anyhow!("缺少 pid 参数".to_string()))? as i32;
         
         // 发送 SIGTERM
         let result = unsafe { libc::kill(pid, libc::SIGTERM) };
@@ -146,7 +148,7 @@ impl ProcessTool {
                 "pid": pid
             }))
         } else {
-            Err(ToolError::ExecutionFailed(format!("终止进程失败: {}", pid)))
+            Err(anyhow::anyhow!(format!("终止进程失败: {}", pid)))
         }
     }
 }

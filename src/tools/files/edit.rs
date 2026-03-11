@@ -1,9 +1,11 @@
 // 文件编辑工具（精确替换）
 
+use serde_json::Value as JsonValue;
+
 use std::path::Path;
 use async_trait::async_trait;
 
-use crate::tools::{Tool, ToolError, ToolResult, ToolMetadata};
+use crate::tools::{Tool, ToolMetadata};
 
 /// 文件编辑工具
 pub struct EditTool {
@@ -26,9 +28,9 @@ impl EditTool {
     }
     
     /// 验证路径是否在允许范围内
-    fn validate_path(&self, path: &Path) -> ToolResult<()> {
+    fn validate_path(&self, path: &Path) -> anyhow::Result<()> {
         let canonical = path.canonicalize()
-            .map_err(|e| ToolError::ExecutionFailed(format!("路径不存在: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!(format!("路径不存在: {}", e)))?;
         
         for dir in &self.allowed_dirs {
             if canonical.starts_with(dir) {
@@ -36,7 +38,7 @@ impl EditTool {
             }
         }
         
-        Err(ToolError::PermissionDenied(format!(
+        Err(anyhow::anyhow!(format!(
             "路径 {:?} 不在允许的目录范围内",
             path
         )))
@@ -49,7 +51,7 @@ impl Tool for EditTool {
         ToolMetadata {
             name: "edit".to_string(),
             description: "编辑文件（精确文本替换）".to_string(),
-            input_schema: serde_json::json!({
+            parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "path": {
@@ -70,19 +72,19 @@ impl Tool for EditTool {
         }
     }
     
-    async fn execute(&self, args: serde_json::Value) -> ToolResult<serde_json::Value> {
+    async fn execute(&self, args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
         // 解析参数
         let path_str = args["path"]
             .as_str()
-            .ok_or_else(|| ToolError::InvalidArguments("缺少 path 参数".to_string()))?;
+            .ok_or_else(|| anyhow::anyhow!("缺少 path 参数".to_string()))?;
         
         let old_text = args["oldText"]
             .as_str()
-            .ok_or_else(|| ToolError::InvalidArguments("缺少 oldText 参数".to_string()))?;
+            .ok_or_else(|| anyhow::anyhow!("缺少 oldText 参数".to_string()))?;
         
         let new_text = args["newText"]
             .as_str()
-            .ok_or_else(|| ToolError::InvalidArguments("缺少 newText 参数".to_string()))?;
+            .ok_or_else(|| anyhow::anyhow!("缺少 newText 参数".to_string()))?;
         
         let path = Path::new(path_str);
         
@@ -92,11 +94,11 @@ impl Tool for EditTool {
         // 读取文件
         let content = tokio::fs::read_to_string(path)
             .await
-            .map_err(|e| ToolError::ExecutionFailed(format!("读取文件失败: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!(format!("读取文件失败: {}", e)))?;
         
         // 检查 oldText 是否存在
         if !content.contains(old_text) {
-            return Err(ToolError::ExecutionFailed(format!(
+            return Err(anyhow::anyhow!(format!(
                 "未找到要替换的文本: {}",
                 if old_text.len() > 50 {
                     &old_text[..50]
@@ -112,7 +114,7 @@ impl Tool for EditTool {
         // 写回文件
         tokio::fs::write(path, &new_content)
             .await
-            .map_err(|e| ToolError::ExecutionFailed(format!("写入文件失败: {}", e)))?;
+            .map_err(|e| anyhow::anyhow!(format!("写入文件失败: {}", e)))?;
         
         Ok(serde_json::json!({
             "success": true,

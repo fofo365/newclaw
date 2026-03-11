@@ -4,6 +4,16 @@ Cargo.lock
 *.rs.bk
 *.pdb
 
+# Node.js / Frontend
+node_modules/
+dashboard-ui/node_modules/
+dashboard-ui/dist/
+dashboard-ui/.vite/
+dashboard-ui/tsconfig.tsbuildinfo
+
+# Static files
+static/
+
 # IDE
 .idea/
 .vscode/
@@ -20,3 +30,14 @@ Cargo.lock
 
 # Benchmark results
 /target/criterion/
+
+# Workspace-specific
+.clawhub/
+.github-token
+.openclaw/
+memory/
+novels/
+files/
+skills/
+md2word/
+feishu-mind/
