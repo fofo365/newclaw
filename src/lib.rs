@@ -3,7 +3,7 @@
 
 // Core modules
 pub mod core;
-// pub mod channels; // 需要修复编译错误
+pub mod channels;
 pub mod config;
 pub mod cli;
 pub mod llm;

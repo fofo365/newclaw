@@ -5,7 +5,7 @@
 
 mod config;
 pub mod coordinator;
-mod session;
+pub mod session;
 pub mod message;
 
 pub use config::{AGPConfig, FederationDomain};
@@ -27,6 +27,14 @@ pub enum ChannelError {
     InvalidInput(String),
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("Other error: {0}")]
+    Other(String),
+}
+
+impl From<anyhow::Error> for ChannelError {
+    fn from(err: anyhow::Error) -> Self {
+        ChannelError::Other(err.to_string())
+    }
 }
 
 /// Channel 健康状态
@@ -150,7 +158,7 @@ impl Channel for AGPChannel {
             AGPSession::new(
                 assignment.identity,
                 assignment.initial_peers,
-                self.config.domain.clone(),
+                self.config.domain.as_ref().map(|d| FederationDomain(d.clone())),
             ).await?
         );
 
@@ -162,7 +170,7 @@ impl Channel for AGPChannel {
                 // 将 AGP 消息转换为 NewClaw Message
                 let message = Message {
                     content: agp_msg.payload,
-                    role: crate::channels::MessageRole::User,
+                    role: crate::channels::agp::MessageRole::User,
                     channel: "agp".to_string(),
                     metadata: serde_json::json!({
                         "remote_id": agp_msg.sender,
@@ -200,7 +208,7 @@ impl Channel for AGPChannel {
             correlation_id: message.metadata.get("correlation_id")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string()),
-            domain: self.config.domain.clone(),
+            domain: self.config.domain.as_ref().map(|d| message::FederationDomain(d.clone())),
         }).await?;
 
         Ok(())
