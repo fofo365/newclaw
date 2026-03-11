@@ -124,9 +124,9 @@ libc = "0.2"
 tracing-test = "0.1"
 criterion = "0.5"
 
-[[bench]]
-name = "embedding_bench"
-harness = false
+# [[bench]]
+# name = "embedding_bench"
+# harness = false
 
 [profile.release]
 opt-level = 3
