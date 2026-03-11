@@ -11,6 +11,7 @@ pub mod canvas;
 pub mod memory;
 pub mod sessions;
 pub mod subagents;
+pub mod nodes;
 pub mod init;
 
 pub use error::ToolError;
@@ -25,6 +26,7 @@ pub use canvas::CanvasTool;
 pub use memory::MemoryTool;
 pub use sessions::{SessionsTool, SessionStore, SessionInfo};
 pub use subagents::{SubagentsTool, SubagentStore, SubagentInfo};
+pub use nodes::{NodesTool, NodeStore, NodeInfo, NodeType, NodeStatus, NodeCapability};
 pub use init::init_builtin_tools;
 
 use async_trait::async_trait;
