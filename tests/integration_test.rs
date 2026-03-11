@@ -6,24 +6,26 @@
 // 3. 流式响应
 
 use newclaw::*;
+use newclaw::tools::{ToolRegistry, ReadTool, WriteTool};
 use newclaw::llm::LLMProviderV3;
-use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::path::PathBuf;
 
 #[tokio::test]
 async fn test_tool_llm_integration() {
     // 创建工具注册表
     let registry = ToolRegistry::new();
-    
-    // 注册工具
-    registry.register(Arc::new(ReadTool)).await;
-    registry.register(Arc::new(WriteTool)).await;
+
+    // 注册工具（允许 /tmp 目录用于测试）
+    let read_tool = ReadTool::new().with_allowed_dirs(vec![PathBuf::from("/tmp")]);
+    let write_tool = WriteTool::new().with_allowed_dirs(vec![PathBuf::from("/tmp")]);
+    registry.register(read_tool).await.unwrap();
+    registry.register(write_tool).await.unwrap();
     
     // 模拟 Agent 思考过程
     let _user_input = "请创建一个测试文件并写入 Hello, World!";
     
     // Agent 决定使用 write 工具
-    let output = registry.execute(
+    let output = registry.call(
         "write",
         serde_json::json!({
             "path": "/tmp/test_integration.txt",
@@ -31,19 +33,17 @@ async fn test_tool_llm_integration() {
         })
     ).await.unwrap();
     
-    assert!(output.is_success());
-    assert!(output.content.contains("Successfully"));
+    assert!(output["success"].as_bool().unwrap_or(false));
     
     // 验证文件创建
-    let read_output = registry.execute(
+    let read_output = registry.call(
         "read",
         serde_json::json!({
             "path": "/tmp/test_integration.txt"
         })
     ).await.unwrap();
     
-    assert!(read_output.is_success());
-    assert!(read_output.content.contains("Hello, World!"));
+    assert!(read_output["content"].as_str().unwrap().contains("Hello, World!"));
     
     // 清理
     std::fs::remove_file("/tmp/test_integration.txt").ok();
@@ -156,32 +156,32 @@ async fn test_claude_provider_creation() {
 
 #[tokio::test]
 async fn test_tool_registry() {
-    use std::sync::Arc;
-    
     let registry = ToolRegistry::new();
-    let read_tool = Arc::new(ReadTool);
+
+    let read_tool = ReadTool::new().with_allowed_dirs(vec![PathBuf::from("/tmp")]);
+    registry.register(read_tool).await.unwrap();
     
-    registry.register(read_tool).await;
-    
-    let tools = registry.list().await;
+    let tools = registry.list_tools().await;
     assert_eq!(tools.len(), 1);
     assert_eq!(tools[0].name, "read");
     
-    let exists = registry.exists("read").await;
-    assert!(exists);
+    let metadata = registry.get_tool("read").await;
+    assert!(metadata.is_some());
     
-    let not_exists = registry.exists("nonexistent").await;
-    assert!(!not_exists);
+    let not_exists = registry.get_tool("nonexistent").await;
+    assert!(not_exists.is_none());
 }
 
 #[tokio::test]
 async fn end_to_end_workflow() {
     // 完整的工作流测试
-    
-    // 1. 创建工具
+
+    // 1. 创建工具（允许 /tmp 目录用于测试）
     let registry = ToolRegistry::new();
-    registry.register(Arc::new(WriteTool)).await;
-    registry.register(Arc::new(ReadTool)).await;
+    let read_tool = ReadTool::new().with_allowed_dirs(vec![PathBuf::from("/tmp")]);
+    let write_tool = WriteTool::new().with_allowed_dirs(vec![PathBuf::from("/tmp")]);
+    registry.register(write_tool).await.unwrap();
+    registry.register(read_tool).await.unwrap();
     
     // 2. 创建 LLM Provider
     let openai = llm::OpenAIProvider::new("dummy-key".to_string());
@@ -190,7 +190,7 @@ async fn end_to_end_workflow() {
     // 3. 模拟工作流
     // 用户: "创建一个文件并写入测试内容"
     // Agent: 使用 write 工具
-    let write_output = registry.execute(
+    let write_output = registry.call(
         "write",
         serde_json::json!({
             "path": "/tmp/e2e_test.txt",
@@ -198,18 +198,17 @@ async fn end_to_end_workflow() {
         })
     ).await.unwrap();
     
-    assert!(write_output.is_success());
+    assert!(write_output["success"].as_bool().unwrap_or(false));
     
     // Agent: 使用 read 工具验证
-    let read_output = registry.execute(
+    let read_output = registry.call(
         "read",
         serde_json::json!({
             "path": "/tmp/e2e_test.txt"
         })
     ).await.unwrap();
     
-    assert!(read_output.is_success());
-    assert!(read_output.content.contains("测试内容"));
+    assert!(read_output["content"].as_str().unwrap().contains("测试内容"));
     
     // 清理
     std::fs::remove_file("/tmp/e2e_test.txt").ok();
