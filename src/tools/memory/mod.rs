@@ -81,6 +81,220 @@ impl MemoryTool {
         Ok(())
     }
 
+    /// 添加新记忆
+    pub async fn add(&self, content: &str, source: &str, tags: Option<Vec<String>>) -> Result<MemoryEntry> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let timestamp = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        
+        // 根据来源决定存储位置
+        let file_name = if source == "long_term" {
+            "MEMORY.md".to_string()
+        } else {
+            format!("daily/{}.md", timestamp)
+        };
+        
+        let file_path = self.memory_dir.join(&file_name);
+        
+        // 准备记忆内容
+        let memory_content = if let Some(tags) = tags {
+            format!("\n## {} (Added: {})\n\nTags: {}\n\n{}\n\n---\n", 
+                id, timestamp, tags.join(", "), content)
+        } else {
+            format!("\n## {} (Added: {})\n\n{}\n\n---\n", 
+                id, timestamp, content)
+        };
+        
+        // 追加到文件
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&file_path)
+            .await?;
+        file.write_all(memory_content.as_bytes()).await?;
+        
+        Ok(MemoryEntry {
+            id: id.clone(),
+            path: file_name,
+            content: content.to_string(),
+            source: source.to_string(),
+            score: Some(1.0),
+        })
+    }
+    
+    /// 更新记忆
+    pub async fn update(&self, id: &str, new_content: &str) -> Result<bool> {
+        // 搜索包含该 ID 的记忆
+        let files = vec![
+            self.memory_dir.join("MEMORY.md"),
+            self.daily_dir.clone(),
+        ];
+        
+        for base_path in files {
+            if base_path.is_dir() {
+                let mut entries = fs::read_dir(&base_path).await?;
+                while let Some(entry) = entries.next_entry().await? {
+                    let path = entry.path();
+                    if path.extension().map(|e| e == "md").unwrap_or(false) {
+                        if self.update_in_file(&path, id, new_content).await? {
+                            return Ok(true);
+                        }
+                    }
+                }
+            } else if base_path.exists() {
+                if self.update_in_file(&base_path, id, new_content).await? {
+                    return Ok(true);
+                }
+            }
+        }
+        
+        Ok(false)
+    }
+    
+    /// 在文件中更新记忆
+    async fn update_in_file(&self, file_path: &PathBuf, id: &str, new_content: &str) -> Result<bool> {
+        let content = fs::read_to_string(file_path).await?;
+        
+        // 查找包含该 ID 的部分
+        if content.contains(id) {
+            // 简单实现：找到 ## {id} 部分，替换内容
+            let start_marker = format!("## {}", id);
+            if let Some(start) = content.find(&start_marker) {
+                let end = content[start..].find("\n---\n")
+                    .map(|i| start + i + 5)
+                    .unwrap_or(content.len());
+                
+                let new_section = format!("## {} (Updated: {})\n\n{}\n\n---\n",
+                    id, chrono::Utc::now().format("%Y-%m-%d %H:%M"), new_content);
+                
+                let updated_content = format!("{}{}{}",
+                    &content[..start],
+                    new_section,
+                    &content[end..]);
+                
+                fs::write(file_path, updated_content).await?;
+                return Ok(true);
+            }
+        }
+        
+        Ok(false)
+    }
+    
+    /// 删除记忆
+    pub async fn delete(&self, id: &str) -> Result<bool> {
+        let files = vec![
+            self.memory_dir.join("MEMORY.md"),
+            self.daily_dir.clone(),
+        ];
+        
+        for base_path in files {
+            if base_path.is_dir() {
+                let mut entries = fs::read_dir(&base_path).await?;
+                while let Some(entry) = entries.next_entry().await? {
+                    let path = entry.path();
+                    if path.extension().map(|e| e == "md").unwrap_or(false) {
+                        if self.delete_from_file(&path, id).await? {
+                            return Ok(true);
+                        }
+                    }
+                }
+            } else if base_path.exists() {
+                if self.delete_from_file(&base_path, id).await? {
+                    return Ok(true);
+                }
+            }
+        }
+        
+        Ok(false)
+    }
+    
+    /// 从文件中删除记忆
+    async fn delete_from_file(&self, file_path: &PathBuf, id: &str) -> Result<bool> {
+        let content = fs::read_to_string(file_path).await?;
+        
+        if content.contains(id) {
+            let start_marker = format!("## {}", id);
+            if let Some(start) = content.find(&start_marker) {
+                let end = content[start..].find("\n---\n")
+                    .map(|i| start + i + 5)
+                    .unwrap_or(content.len());
+                
+                let updated_content = format!("{}{}",
+                    &content[..start],
+                    &content[end..]);
+                
+                fs::write(file_path, updated_content).await?;
+                return Ok(true);
+            }
+        }
+        
+        Ok(false)
+    }
+    
+    /// 列出所有记忆
+    pub async fn list(&self, source: Option<&str>, limit: Option<usize>) -> Result<Vec<MemoryEntry>> {
+        let mut entries = Vec::new();
+        let limit = limit.unwrap_or(100);
+        
+        // 列出长期记忆
+        if source.is_none() || source == Some("long_term") {
+            let memory_path = self.memory_dir.join("MEMORY.md");
+            if memory_path.exists() {
+                let content = fs::read_to_string(&memory_path).await?;
+                // 简单实现：按 ## 分割
+                for section in content.split("\n## ") {
+                    if section.trim().is_empty() {
+                        continue;
+                    }
+                    
+                    let lines: Vec<&str> = section.lines().collect();
+                    let title = lines.first().unwrap_or(&"").to_string();
+                    
+                    entries.push(MemoryEntry {
+                        id: title.split_whitespace().next().unwrap_or("").to_string(),
+                        path: "MEMORY.md".to_string(),
+                        content: section.to_string(),
+                        source: "long_term".to_string(),
+                        score: None,
+                    });
+                    
+                    if entries.len() >= limit {
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // 列出每日日志
+        if (source.is_none() || source == Some("daily")) && entries.len() < limit {
+            if self.daily_dir.exists() {
+                let mut dir_entries = fs::read_dir(&self.daily_dir).await?;
+                while let Some(entry) = dir_entries.next_entry().await? {
+                    let path = entry.path();
+                    if path.extension().map(|e| e == "md").unwrap_or(false) {
+                        let file_name = path.file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("unknown")
+                            .to_string();
+                        
+                        entries.push(MemoryEntry {
+                            id: file_name.clone(),
+                            path: format!("daily/{}", file_name),
+                            content: "".to_string(), // 不加载内容，节省内存
+                            source: "daily".to_string(),
+                            score: None,
+                        });
+                        
+                        if entries.len() >= limit {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        
+        Ok(entries)
+    }
+
     /// 关键词搜索
     pub async fn keyword_search(&self, query: &str, max_results: usize) -> Result<Vec<MemoryEntry>> {
         let mut results = Vec::new();
@@ -240,8 +454,8 @@ impl Tool for MemoryTool {
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["search", "get", "stats", "migrate"],
-                        "description": "Action to run: search | get | stats | migrate"
+                        "enum": ["search", "get", "stats", "migrate", "add", "update", "delete", "list"],
+                        "description": "Action to run: search | get | stats | migrate | add | update | delete | list"
                     },
                     "query": {
                         "type": "string",
@@ -263,6 +477,27 @@ impl Tool for MemoryTool {
                         "type": "number",
                         "description": "Maximum number of results for search (default: 5)",
                         "default": 5
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Content for add/update actions"
+                    },
+                    "id": {
+                        "type": "string",
+                        "description": "Memory ID for update/delete actions"
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": "Source type: long_term or daily (for add/list actions)"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Tags for add action (optional)"
+                    },
+                    "limit": {
+                        "type": "number",
+                        "description": "Maximum number of entries for list action"
                     }
                 },
                 "required": ["action"]
@@ -318,6 +553,66 @@ impl Tool for MemoryTool {
                     "status": "success",
                     "message": "Memory migration completed",
                     "stats": stats
+                }))
+            }
+
+            "add" => {
+                let content = args.get("content")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: content"))?;
+                let source = args.get("source")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("long_term");
+                let tags = args.get("tags")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect());
+                
+                let entry = self.add(content, source, tags).await?;
+                Ok(serde_json::json!({
+                    "status": "success",
+                    "message": "Memory added successfully",
+                    "entry": entry
+                }))
+            }
+
+            "update" => {
+                let id = args.get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: id"))?;
+                let content = args.get("content")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: content"))?;
+                
+                let updated = self.update(id, content).await?;
+                Ok(serde_json::json!({
+                    "status": if updated { "success" } else { "not_found" },
+                    "message": if updated { "Memory updated successfully" } else { "Memory not found" },
+                    "id": id
+                }))
+            }
+
+            "delete" => {
+                let id = args.get("id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: id"))?;
+                
+                let deleted = self.delete(id).await?;
+                Ok(serde_json::json!({
+                    "status": if deleted { "success" } else { "not_found" },
+                    "message": if deleted { "Memory deleted successfully" } else { "Memory not found" },
+                    "id": id
+                }))
+            }
+
+            "list" => {
+                let source = args.get("source").and_then(|v| v.as_str());
+                let limit = args.get("limit").and_then(|v| v.as_u64()).map(|n| n as usize);
+                
+                let entries = self.list(source, limit).await?;
+                Ok(serde_json::json!({
+                    "status": "success",
+                    "entries": entries,
+                    "count": entries.len()
                 }))
             }
 
