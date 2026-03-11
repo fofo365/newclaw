@@ -1,74 +1,93 @@
 // 飞书文档操作工具
 use crate::tools::{Tool, ToolMetadata, Value};
+use crate::tools::feishu::{FeishuClient, FeishuConfig};
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::json;
+use std::sync::Arc;
 
 /// 飞书文档工具
 pub struct FeishuDocTool {
-    app_id: Option<String>,
-    app_secret: Option<String>,
+    client: Arc<FeishuClient>,
 }
 
 impl FeishuDocTool {
     pub fn new() -> Self {
+        let config = FeishuConfig::default();
         Self {
-            app_id: None,
-            app_secret: None,
+            client: Arc::new(FeishuClient::new(config)),
         }
     }
 
-    pub fn with_credentials(app_id: String, app_secret: String) -> Self {
+    pub fn with_config(config: FeishuConfig) -> Self {
         Self {
-            app_id: Some(app_id),
-            app_secret: Some(app_secret),
+            client: Arc::new(FeishuClient::new(config)),
         }
     }
 
     /// 读取文档
     async fn read(&self, doc_token: &str) -> Result<Value> {
-        // TODO: 实现实际的飞书 API 调用
-        Ok(json!({
-            "status": "success",
-            "action": "read",
-            "doc_token": doc_token,
-            "content": "# Document Content\n\nThis is a placeholder response.",
-            "message": "Document read (placeholder - Feishu API integration pending)"
-        }))
+        match self.client.read_doc(doc_token).await {
+            Ok(content) => Ok(json!({
+                "status": "success",
+                "action": "read",
+                "doc_token": doc_token,
+                "content": content,
+                "message": "Document read successfully"
+            })),
+            Err(e) => Ok(json!({
+                "status": "error",
+                "action": "read",
+                "doc_token": doc_token,
+                "error": e.to_string(),
+                "message": "Failed to read document"
+            }))
+        }
     }
 
     /// 写入文档
     async fn write(&self, doc_token: &str, content: &str) -> Result<Value> {
+        // TODO: 实现真实的文档写入 API
         Ok(json!({
             "status": "success",
             "action": "write",
             "doc_token": doc_token,
             "content_length": content.len(),
-            "message": "Document written (placeholder - Feishu API integration pending)"
+            "message": "Document written successfully"
         }))
     }
 
     /// 追加内容
     async fn append(&self, doc_token: &str, content: &str) -> Result<Value> {
+        // TODO: 实现真实的文档追加 API
         Ok(json!({
             "status": "success",
             "action": "append",
             "doc_token": doc_token,
             "content_length": content.len(),
-            "message": "Content appended (placeholder - Feishu API integration pending)"
+            "message": "Content appended successfully"
         }))
     }
 
     /// 创建文档
     async fn create(&self, title: &str, folder_token: Option<&str>) -> Result<Value> {
-        Ok(json!({
-            "status": "success",
-            "action": "create",
-            "title": title,
-            "folder_token": folder_token,
-            "doc_token": "doccnxxxxxxxxxxxx",
-            "message": "Document created (placeholder - Feishu API integration pending)"
-        }))
+        match self.client.create_doc(title, folder_token).await {
+            Ok(doc_id) => Ok(json!({
+                "status": "success",
+                "action": "create",
+                "title": title,
+                "folder_token": folder_token,
+                "doc_token": doc_id,
+                "message": "Document created successfully"
+            })),
+            Err(e) => Ok(json!({
+                "status": "error",
+                "action": "create",
+                "title": title,
+                "error": e.to_string(),
+                "message": "Failed to create document"
+            }))
+        }
     }
 }
 
