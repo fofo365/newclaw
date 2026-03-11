@@ -44,6 +44,63 @@ impl MemoryTool {
         }
     }
 
+    /// 初始化向量索引
+    pub async fn init_vector_index(&self, dimension: usize) -> Result<()> {
+        let mut vector_index = self.vector_index.write().await;
+        *vector_index = Some(VectorIndex::new(dimension));
+        info!("✅ 向量索引初始化完成 (维度: {})", dimension);
+        Ok(())
+    }
+
+    /// 语义搜索（基于向量索引）
+    pub async fn semantic_search(&self, query: &str, max_results: usize) -> Result<Vec<MemoryEntry>> {
+        let vector_index = self.vector_index.read().await;
+        
+        if let Some(index) = vector_index.as_ref() {
+            // TODO: 实现真实的文本嵌入生成
+            // 目前使用简单的 TF-IDF 或词袋模型作为占位符
+            let query_vector = self.simple_embedding(query);
+            
+            let results = index.search(&query_vector, max_results).await?;
+            
+            Ok(results.into_iter().map(|(id, score, content)| {
+                MemoryEntry {
+                    id: id.clone(),
+                    path: id.clone(),
+                    content,
+                    source: "vector_index".to_string(),
+                    score: Some(score),
+                }
+            }).collect())
+        } else {
+            warn!("向量索引未初始化，回退到关键词搜索");
+            self.keyword_search(query, max_results).await
+        }
+    }
+
+    /// 简单的文本嵌入（占位符实现）
+    fn simple_embedding(&self, text: &str) -> Vec<f32> {
+        // TODO: 使用真实的嵌入模型（如 OpenAI Embeddings）
+        // 目前使用简单的哈希向量作为占位符
+        let dimension = 128;
+        let mut vector = vec![0.0; dimension];
+        
+        for (i, c) in text.chars().enumerate() {
+            let idx = (c as usize) % dimension;
+            vector[idx] += 1.0;
+        }
+        
+        // 归一化
+        let norm: f32 = vector.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm > 0.0 {
+            for v in &mut vector {
+                *v /= norm;
+            }
+        }
+        
+        vector
+    }
+
     /// 自动迁移 OpenClaw 记忆数据
     pub async fn auto_migrate(&self) -> Result<()> {
         // 检查是否已迁移
@@ -461,8 +518,8 @@ impl Tool for MemoryTool {
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["search", "get", "stats", "migrate", "add", "update", "delete", "list"],
-                        "description": "Action to run: search | get | stats | migrate | add | update | delete | list"
+                        "enum": ["search", "get", "stats", "migrate", "add", "update", "delete", "list", "semantic_search"],
+                        "description": "Action to run: search | get | stats | migrate | add | update | delete | list | semantic_search"
                     },
                     "query": {
                         "type": "string",
@@ -621,6 +678,28 @@ impl Tool for MemoryTool {
                     "entries": entries,
                     "count": entries.len()
                 }))
+            }
+
+            "semantic_search" => {
+                let query = args.get("query")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: query"))?;
+
+                let max_results = args.get("max_results")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(5) as usize;
+
+                // 确保向量索引已初始化
+                {
+                    let vector_index = self.vector_index.read().await;
+                    if vector_index.is_none() {
+                        drop(vector_index);
+                        self.init_vector_index(128).await?;
+                    }
+                }
+
+                let results = self.semantic_search(query, max_results).await?;
+                Ok(serde_json::to_value(results)?)
             }
 
             _ => Err(anyhow::anyhow!("Unknown action: {}", action))
