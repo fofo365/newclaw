@@ -1,18 +1,10 @@
-# Rust
+# Build artifacts
 /target/
-Cargo.lock
-*.rs.bk
+**/*.rs.bk
 *.pdb
 
-# Node.js / Frontend
-node_modules/
-dashboard-ui/node_modules/
-dashboard-ui/dist/
-dashboard-ui/.vite/
-dashboard-ui/tsconfig.tsbuildinfo
-
-# Static files
-static/
+# Cargo lock for library
+# Cargo.lock
 
 # IDE
 .idea/
@@ -21,23 +13,28 @@ static/
 *.swo
 *~
 
-# Logs
-*.log
+# OS
+.DS_Store
+Thumbs.db
 
 # Environment
 .env
 .env.local
+*.env
 
-# Benchmark results
-/target/criterion/
+# Logs
+*.log
+logs/
 
-# Workspace-specific
-.clawhub/
-.github-token
-.openclaw/
-memory/
-novels/
-files/
-skills/
-md2word/
-feishu-mind/
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Test artifacts
+test-results/
+coverage/
+
+# Backup files
+*.backup
+*.backup.*
