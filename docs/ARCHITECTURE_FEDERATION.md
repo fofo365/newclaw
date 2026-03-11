@@ -1,4 +1,4 @@
-# NewClaw v0.5.0 - 声明式联邦架构设计
+# NewClaw v0.6.0 - 声明式联邦架构设计
 
 ## 核心理念
 
@@ -175,7 +175,7 @@ impl Channel for AGPChannel {
             .ok_or_else(|| ChannelError::NotConnected)?;
 
         let target_id = target.ok_or_else(||
-            ChannelError::InvalidInput("AGP Channel requires explicit target (remote Agent ID)".to_string())
+            ChannelError::InvalidInput("AGP Channel requires explicit target".to_string())
         )?;
 
         session.send(AGPMessage {
@@ -194,16 +194,12 @@ impl Channel for AGPChannel {
 
     /// 关闭 Channel（Agent 关闭时调用）
     async fn close(&mut self) -> Result<(), ChannelError> {
-        // 1. 注销身份
         if let Some(coordinator) = &self.coordinator {
             coordinator.unregister(&self.config.agent_id).await?;
         }
-
-        // 2. 关闭会话
         if let Some(session) = &self.session {
             session.leave().await?;
         }
-
         tracing::info!("AGP Channel closed");
         Ok(())
     }
@@ -220,10 +216,6 @@ impl Channel for AGPChannel {
 impl AGPChannel {
     /// 自动检测本地 endpoint
     fn detect_local_endpoint(&self) -> String {
-        // TODO: 实现自动检测逻辑
-        // 1. 检查环境变量 NEWCLAW_AGP_ENDPOINT
-        // 2. 检查配置文件
-        // 3. 使用默认值 agp://localhost:7777/agent-id
         format!("agp://localhost:7777/{}", self.config.agent_id)
     }
 }
@@ -235,7 +227,6 @@ impl AGPChannel {
 // src/channels/agp/config.rs
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 
 /// AGP Channel 配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -265,168 +256,44 @@ pub struct AGPConfig {
 
 ---
 
-## 三、轻量级协调平面（Coordination Plane）
+## 三、协调平面（外部服务）
 
-### 3.1 设计原则
+> **注意**：协调平面是独立项目，不在 NewClaw 代码库中开发。
+> NewClaw 仅提供 Coordinator trait 接口，具体实现由外部服务提供。
 
-**避免重量级**：不要 Kubernetes，不要 Raft，只要轻量注册与发现。
-
-### 3.2 选项 A：嵌入式协调（最小化）
-
-对于单域小规模联邦（<100 Agents），协调平面直接嵌入 AGP Channel：
+### 3.1 接口定义
 
 ```rust
-// src/channels/agp/coordinator/embedded.rs
+/// 协调平面接口（对接外部服务）
+#[async_trait]
+pub trait Coordinator: Send + Sync {
+    /// 注册 Agent
+    async fn register(&self, agent_id: &str, capabilities: &[String], endpoint: &str) -> Result<Registration>;
+    
+    /// 注销 Agent
+    async fn unregister(&self, agent_id: &str) -> Result<()>;
+    
+    /// 发现 Agent
+    async fn discover(&self, capability: &str) -> Result<Vec<AgentInfo>>;
+}
+```
 
-/// 基于 gossip 的嵌入式协调
-///
-/// 特点：
-/// - 无独立进程
-/// - 零外部依赖
-/// - 适合边缘部署
-pub struct EmbeddedCoordinator {
+### 3.2 默认实现
+
+NewClaw 内置最小化实现，用于开发和测试：
+
+```rust
+/// 内存协调器（仅用于开发/测试）
+pub struct InMemoryCoordinator {
     peers: Arc<RwLock<HashMap<String, AgentInfo>>>,
-    gossip: GossipProtocol,
-}
-
-impl EmbeddedCoordinator {
-    pub fn new() -> Self {
-        Self {
-            peers: Arc::new(RwLock::new(HashMap::new())),
-            gossip: GossipProtocol::new(),
-        }
-    }
-
-    /// 注册 Agent
-    pub async fn register(
-        &self,
-        agent_id: String,
-        capabilities: Vec<String>,
-        endpoint: String,
-    ) -> Result<Registration, CoordinatorError> {
-        let info = AgentInfo {
-            id: agent_id.clone(),
-            capabilities,
-            endpoint,
-            registered_at: chrono::Utc::now(),
-        };
-
-        // 通过 gossip 广播存在
-        self.gossip.broadcast(GossipMessage::Join(info.clone())).await;
-
-        // 返回当前已知的部分节点（用于建立连接）
-        let peers = self.peers.read().await;
-        let initial_peers = peers.keys()
-            .filter(|id| *id != &agent_id)
-            .take(3) // 随机选择 3 个邻居
-            .cloned()
-            .collect();
-
-        Ok(Registration {
-            identity: agent_id,
-            initial_peers,
-        })
-    }
-
-    /// 发现 Agent
-    pub async fn discover(&self, capability: &str) -> Vec<AgentInfo> {
-        let peers = self.peers.read().await;
-        peers.values()
-            .filter(|info| info.capabilities.contains(&capability.to_string()))
-            .cloned()
-            .collect()
-    }
 }
 ```
 
-### 3.3 选项 B：独立协调服务（轻量级）
-
-对于多域或需要持久化的场景，单独的协调进程：
-
-```rust
-// src/coordinator/server.rs
-
-/// 独立协调服务
-///
-/// 特点：
-/// - 单文件二进制（<10MB）
-/// - 支持 SQLite/Redis 后端
-/// - Docker 一键部署
-/// - 仅负责身份分配、能力目录、健康检查
-/// - 不负责消息路由（Agent 直连）
-pub struct CoordinatorServer {
-    backend: CoordinatorBackend,
-    config: CoordinatorConfig,
-}
-
-impl CoordinatorServer {
-    pub async fn run(config: CoordinatorConfig) -> anyhow::Result<()> {
-        let backend = match config.backend.as_str() {
-            "sqlite" => CoordinatorBackend::Sqlite(SqliteBackend::new(&config.db_path).await?),
-            "redis" => CoordinatorBackend::Redis(RedisBackend::new(&config.redis_url).await?),
-            _ => return Err(anyhow::anyhow!("Unknown backend: {}", config.backend)),
-        };
-
-        let server = Self { backend, config };
-
-        // 启动 HTTP API
-        let app = server.create_router();
-        let addr = format!("{}:{}", config.host, config.port);
-        tracing::info!("Coordinator listening on http://{}", addr);
-
-        let listener = tokio::net::TcpListener::bind(&addr).await?;
-        axum::serve(listener, app).await?;
-
-        Ok(())
-    }
-
-    fn create_router(&self) -> Router {
-        Router::new()
-            // 注册（Join）
-            .route("/v1/agents", post(Self::register_agent))
-            // 发现（Discover）
-            .route("/v1/agents", get(Self::discover_agents))
-            // 健康检查
-            .route("/health", get(Self::health_check))
-    }
-
-    /// 注册 Agent
-    async fn register_agent(
-        State(server): State<Arc<CoordinatorServer>>,
-        Json(req): Json<RegisterRequest>,
-    ) -> Result<Json<RegistrationResponse>, ErrorResponse> {
-        let registration = server.backend.register(
-            req.id,
-            req.capabilities,
-            req.endpoint,
-            req.domain,
-        ).await.map_err(|e| ErrorResponse {
-            error: e.to_string(),
-        })?;
-
-        Ok(Json(registration))
-    }
-
-    /// 发现 Agent
-    async fn discover_agents(
-        State(server): State<Arc<CoordinatorServer>>,
-        Query(params): Query<DiscoverQuery>,
-    ) -> Result<Json<Vec<AgentInfo>>, ErrorResponse> {
-        let agents = server.backend.discover(
-            params.capability,
-            params.domain,
-        ).await.map_err(|e| ErrorResponse {
-            error: e.to_string(),
-        })?;
-
-        Ok(Json(agents))
-    }
-}
-```
+生产环境应替换为外部协调服务（独立项目）。
 
 ---
 
-## 四、与之前方案的对比
+## 四、与热拔插方案的对比
 
 | 维度 | Daemon Skill（热拔插） | AGP Channel（声明式） |
 |------|------------------------|----------------------|
@@ -443,106 +310,29 @@ impl CoordinatorServer {
 
 ---
 
-## 五、NewClaw 与 OpenClaw 的统一路径
+## 五、实施路线图
 
-### 5.1 OpenClaw（现有用户）
+### Phase 4.1: AGP Channel 扩展（1-2 周）
+- [ ] 实现 `AGPChannel` 类，符合 Channel 接口
+- [ ] 点对点直连通信（无协调器）
+- [ ] 10 个单元测试
 
-```bash
-# 只需安装扩展并修改配置
-pip install newclaw-agp-channel
+### Phase 4.2: 联邦感知工具（1 周）
+- [ ] `FederationTool`（主动调用远程 Agent）
+- [ ] `newclaw join` CLI 工具
+- [ ] 能力发现和路由
+- [ ] 5 个单元测试
 
-# config.yaml 添加：
-channels:
-  - type: agp
-    config:
-      bootstrap: "agp://bootstrap.example.com"
+### Phase 4.3: 原生集成（1 周）
+- [ ] AGP Channel 提升为核心组件
+- [ ] 联邦安全和认证机制
+- [ ] 5 个单元测试
 
-# 重启 Agent
-# → 现在它是一个联邦节点
-```
-
-### 5.2 NewClaw（下一代）
-
-NewClaw 就是默认启用 AGP Channel 的 OpenClaw，加上增强的联邦感知：
-
-```rust
-// src/agent/federated.rs
-
-/// 联邦感知的 Agent
-///
-/// 继承 OpenClaw 所有能力，但联邦是一等公民
-pub struct FederatedAgent {
-    inner: OpenClawAgent,
-    agp_channel: Option<Arc<AGPChannel>>,
-}
-
-impl FederatedAgent {
-    pub async fn new(config: AgentConfig) -> anyhow::Result<Self> {
-        // 1. 创建底层 OpenClaw Agent
-        let inner = OpenClawAgent::new(config.clone()).await?;
-
-        // 2. 默认加载 AGP Channel（无需显式配置）
-        let agp_channel = if config.federation.enabled {
-            Some(Arc::new(AGPChannel::from_config(config.federation.agp)?))
-        } else {
-            None
-        };
-
-        Ok(Self { inner, agp_channel })
-    }
-
-    /// 发现联邦中的对等节点
-    pub async fn discover_peers(&self, capability: &str) -> Vec<PeerInfo> {
-        if let Some(agp) = &this.agp_channel {
-            agp.discover(capability).await
-        } else {
-            vec![]
-        }
-    }
-
-    /// 调用远程 Agent 的能力
-    pub async fn call_remote(
-        &self,
-        target: &str,
-        capability: &str,
-        input: serde_json::Value,
-    ) -> anyhow::Result<serde_json::Value> {
-        if let Some(agp) = &this.agp_channel {
-            agp.call(target, capability, input).await
-        } else {
-            Err(anyhow::anyhow!("AGP Channel not enabled"))
-        }
-    }
-}
-```
+**注意**：协调平面仅保留概念和接口，不开发实际服务。
 
 ---
 
-## 六、实施路线图
-
-### Phase 1：AGP Channel 扩展（1-2 周）
-- [ ] 实现 `AGPChannel` 类，符合 NewClaw Channel 接口
-- [ ] 提供 `cargo install newclaw-agp` 扩展包
-- [ ] 支持嵌入式 gossip 协调（零配置模式）
-
-### Phase 2：轻量协调服务（1 周）
-- [ ] 独立 `newclaw-coordinator` 二进制（<10MB，单文件）
-- [ ] 支持 SQLite/Redis 后端
-- [ ] 提供 Docker 一键部署
-
-### Phase 3：联邦感知工具（2 周）
-- [ ] 基于 AGP Channel 的 `FederationSkill`（用于主动调用远程）
-- [ ] 提供 `newclaw join` CLI 工具（自动生成配置 + 重启）
-- [ ] 实现联邦能力发现和路由
-
-### Phase 4：NewClaw 原生（长期）
-- [ ] 将 AGP Channel 提升为核心组件（默认启用）
-- [ ] 实现跨域路由（基于 AGP 的分层路由扩展）
-- [ ] 添加联邦安全和认证机制
-
----
-
-## 七、总结
+## 六、总结
 
 **回归本质，放弃热拔插，拥抱声明式联邦：**
 
@@ -550,11 +340,15 @@ impl FederatedAgent {
 
 Agent 通过简单的配置声明（`channels: [agp]`）和一次重启，即可从单机智能体转变为联邦网络的正式成员。
 
-轻量级协调平面仅解决"发现"与"身份"问题，真正的通信通过 AGP Channel 直连，保持 OpenClaw 的简洁与自治。
-
 **这是最现实的方案**：
 - ✅ 尊重现有架构
 - ✅ 最小化惊喜
 - ✅ 最大化可维护性
 - ✅ 配置驱动哲学
 - ✅ 生产级可靠性
+
+---
+
+**状态**: 📝 设计完成，准备实施
+**版本**: v0.6.0
+**最后更新**: 2026-03-11

@@ -1,5 +1,10 @@
 // 工具初始化模块
-use crate::tools::{MemoryTool, ToolRegistry, BrowserTool, CanvasTool, SessionsTool, SubagentsTool, NodesTool};
+use crate::tools::{
+    MemoryTool, ToolRegistry, BrowserTool, CanvasTool,
+    SessionsTool, SubagentsTool, NodesTool,
+    FeishuDocTool, FeishuBitableTool, FeishuDriveTool, FeishuWikiTool, FeishuChatTool,
+    TtsTool
+};
 use std::path::PathBuf;
 use tracing::info;
 
@@ -32,6 +37,30 @@ pub async fn init_builtin_tools(registry: &ToolRegistry, data_dir: PathBuf, open
     let nodes_tool = NodesTool::new();
     registry.register(nodes_tool).await?;
 
-    info!("✅ 内置工具初始化完成 (memory + browser + canvas + sessions + subagents + nodes)");
+    // 注册飞书文档工具
+    let feishu_doc_tool = FeishuDocTool::new();
+    registry.register(feishu_doc_tool).await?;
+
+    // 注册飞书多维表格工具
+    let feishu_bitable_tool = FeishuBitableTool::new();
+    registry.register(feishu_bitable_tool).await?;
+
+    // 注册飞书云存储工具
+    let feishu_drive_tool = FeishuDriveTool::new();
+    registry.register(feishu_drive_tool).await?;
+
+    // 注册飞书知识库工具
+    let feishu_wiki_tool = FeishuWikiTool::new();
+    registry.register(feishu_wiki_tool).await?;
+
+    // 注册飞书聊天工具
+    let feishu_chat_tool = FeishuChatTool::new();
+    registry.register(feishu_chat_tool).await?;
+
+    // 注册 TTS 工具
+    let tts_tool = TtsTool::new();
+    registry.register(tts_tool).await?;
+
+    info!("✅ 内置工具初始化完成 (memory + browser + canvas + sessions + subagents + nodes + feishu + tts)");
     Ok(())
 }

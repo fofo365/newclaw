@@ -9,6 +9,7 @@ pub mod wecom;
 pub mod qq;
 pub mod telegram;
 pub mod discord;
+pub mod agp;
 
 pub use feishu::{
     FeishuConfig,
@@ -128,4 +129,20 @@ pub use discord::{
     InteractionData,
     Embed,
     EmbedField,
+};
+
+// AGP (Agent Gateway Protocol) Channel exports
+pub use agp::{
+    AGPConfig,
+    AGPChannel,
+    AGPMessage,
+    FederationDomain,
+    coordinator::{CoordinatorClient, EmbeddedCoordinator, AgentInfo, Registration},
+    session::AGPSession,
+    // Re-export types for external use
+    Channel as AGPChannelTrait,
+    Message as AGPMessage_,
+    MessageHandler as AGPMessageHandler,
+    ChannelError as AGPChannelError,
+    ChannelHealth as AGPChannelHealth,
 };

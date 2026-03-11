@@ -12,6 +12,8 @@ pub mod memory;
 pub mod sessions;
 pub mod subagents;
 pub mod nodes;
+pub mod feishu;
+pub mod tts;
 pub mod init;
 
 pub use error::ToolError;
@@ -27,6 +29,8 @@ pub use memory::MemoryTool;
 pub use sessions::{SessionsTool, SessionStore, SessionInfo};
 pub use subagents::{SubagentsTool, SubagentStore, SubagentInfo};
 pub use nodes::{NodesTool, NodeStore, NodeInfo, NodeType, NodeStatus, NodeCapability};
+pub use feishu::{FeishuDocTool, FeishuBitableTool, FeishuDriveTool, FeishuWikiTool, FeishuChatTool};
+pub use tts::TtsTool;
 pub use init::init_builtin_tools;
 
 use async_trait::async_trait;
