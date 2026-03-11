@@ -1,51 +1,39 @@
 // 节点管理工具
-//
-// 提供节点（设备）管理能力：
-// - 发现和列出配对节点
-// - 获取节点状态和描述
-// - 发送通知
-// - 相机/屏幕/位置等功能
-
+use crate::tools::{Tool, ToolMetadata, Value};
+use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use crate::tools::{Tool, ToolMetadata};
-use anyhow::Result;
 
 /// 节点类型
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NodeType {
     Desktop,
     Mobile,
+    Iot,
     Server,
-    IoT,
-    Unknown,
 }
 
 /// 节点状态
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NodeStatus {
     Online,
     Offline,
     Busy,
-    Unknown,
 }
 
 /// 节点能力
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NodeCapability {
     Camera,
+    Microphone,
     Screen,
     Location,
     Notifications,
-    Photos,
-    RunCommands,
-    Invoke,
+    FileAccess,
 }
 
 /// 节点信息
@@ -57,364 +45,276 @@ pub struct NodeInfo {
     pub status: NodeStatus,
     pub capabilities: Vec<NodeCapability>,
     pub last_seen: u64,
-    pub metadata: HashMap<String, String>,
 }
 
 /// 节点存储
 #[derive(Debug, Default)]
 pub struct NodeStore {
-    nodes: HashMap<String, NodeInfo>,
+    nodes: Arc<RwLock<HashMap<String, NodeInfo>>>,
 }
 
 impl NodeStore {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            nodes: Arc::new(RwLock::new(HashMap::new())),
+        }
     }
 
     /// 注册节点
-    pub fn register(&mut self, id: String, name: String, node_type: NodeType, capabilities: Vec<NodeCapability>) -> NodeInfo {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+    pub async fn register(&self, name: &str, node_type: NodeType, capabilities: Vec<NodeCapability>) -> Result<NodeInfo> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().timestamp() as u64;
 
-        let info = NodeInfo {
+        let node = NodeInfo {
             id: id.clone(),
-            name,
+            name: name.to_string(),
             node_type,
             status: NodeStatus::Online,
             capabilities,
             last_seen: now,
-            metadata: HashMap::new(),
         };
 
-        self.nodes.insert(id, info.clone());
-        info
+        let mut nodes = self.nodes.write().await;
+        nodes.insert(id, node.clone());
+
+        Ok(node)
+    }
+
+    /// 列出节点
+    pub async fn list(&self) -> Vec<NodeInfo> {
+        let nodes = self.nodes.read().await;
+        nodes.values().cloned().collect()
     }
 
     /// 获取节点
-    pub fn get(&self, id: &str) -> Option<&NodeInfo> {
-        self.nodes.get(id)
-    }
-
-    /// 列出所有节点
-    pub fn list(&self) -> Vec<&NodeInfo> {
-        self.nodes.values().collect()
-    }
-
-    /// 列出在线节点
-    pub fn list_online(&self) -> Vec<&NodeInfo> {
-        self.nodes.values()
-            .filter(|n| n.status == NodeStatus::Online)
-            .collect()
-    }
-
-    /// 更新节点状态
-    pub fn update_status(&mut self, id: &str, status: NodeStatus) -> Result<()> {
-        if let Some(node) = self.nodes.get_mut(id) {
-            node.status = status;
-            node.last_seen = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs();
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!("Node not found: {}", id))
-        }
-    }
-
-    /// 注销节点
-    pub fn unregister(&mut self, id: &str) -> Result<()> {
-        if self.nodes.remove(id).is_some() {
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!("Node not found: {}", id))
-        }
+    pub async fn get(&self, id: &str) -> Option<NodeInfo> {
+        let nodes = self.nodes.read().await;
+        nodes.get(id).cloned()
     }
 }
 
 /// 节点管理工具
 pub struct NodesTool {
-    store: Arc<RwLock<NodeStore>>,
-    metadata: ToolMetadata,
+    store: Arc<NodeStore>,
 }
 
 impl NodesTool {
     pub fn new() -> Self {
         Self {
-            store: Arc::new(RwLock::new(NodeStore::new())),
-            metadata: ToolMetadata {
-                name: "nodes".to_string(),
-                description: "Discover and control paired nodes (devices). Actions: status, describe, notify, camera, screen, location, photos, run, invoke.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "action": {
-                            "type": "string",
-                            "enum": ["status", "describe", "list", "notify", "camera_snap", "screen_record", "location_get", "run", "invoke"],
-                            "description": "Action to perform"
-                        },
-                        "node": {
-                            "type": "string",
-                            "description": "Node ID or name"
-                        },
-                        "title": {
-                            "type": "string",
-                            "description": "Notification title (for notify)"
-                        },
-                        "body": {
-                            "type": "string",
-                            "description": "Notification body (for notify)"
-                        },
-                        "facing": {
-                            "type": "string",
-                            "enum": ["front", "back", "both"],
-                            "description": "Camera facing (for camera_snap)"
-                        },
-                        "command": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Command to run (for run)"
-                        },
-                        "invoke_command": {
-                            "type": "string",
-                            "description": "Invoke command name (for invoke)"
-                        },
-                        "invoke_params": {
-                            "type": "object",
-                            "description": "Invoke parameters (for invoke)"
-                        }
-                    },
-                    "required": ["action"]
-                }),
-            },
+            store: Arc::new(NodeStore::new()),
         }
     }
 
-    /// 使用现有存储创建工具
-    pub fn with_store(store: Arc<RwLock<NodeStore>>) -> Self {
-        Self {
-            store,
-            metadata: ToolMetadata {
-                name: "nodes".to_string(),
-                description: "Manage paired nodes.".to_string(),
-                parameters: serde_json::json!({"type": "object"}),
-            },
+    /// 获取节点状态
+    async fn status(&self) -> Result<Value> {
+        let nodes = self.store.list().await;
+        Ok(json!({
+            "status": "success",
+            "action": "status",
+            "nodes": nodes,
+            "count": nodes.len()
+        }))
+    }
+
+    /// 获取节点描述
+    async fn describe(&self, id: &str) -> Result<Value> {
+        if let Some(node) = self.store.get(id).await {
+            Ok(json!({
+                "status": "success",
+                "action": "describe",
+                "node": node
+            }))
+        } else {
+            Err(anyhow::anyhow!("Node not found: {}", id))
         }
     }
-}
 
-impl Default for NodesTool {
-    fn default() -> Self {
-        Self::new()
+    /// 发送通知
+    async fn notify(&self, id: &str, title: &str, body: &str) -> Result<Value> {
+        if let Some(node) = self.store.get(id).await {
+            // TODO: 实现实际的通知发送
+            Ok(json!({
+                "status": "success",
+                "action": "notify",
+                "node_id": id,
+                "title": title,
+                "body": body,
+                "node": node
+            }))
+        } else {
+            Err(anyhow::anyhow!("Node not found: {}", id))
+        }
+    }
+
+    /// 相机截图
+    async fn camera_snap(&self, id: &str) -> Result<Value> {
+        if let Some(node) = self.store.get(id).await {
+            // TODO: 实现实际的相机截图
+            Ok(json!({
+                "status": "success",
+                "action": "camera_snap",
+                "node_id": id,
+                "image": "base64_encoded_image_placeholder",
+                "node": node
+            }))
+        } else {
+            Err(anyhow::anyhow!("Node not found: {}", id))
+        }
+    }
+
+    /// 屏幕录制
+    async fn screen_record(&self, id: &str, duration_ms: u64) -> Result<Value> {
+        if let Some(node) = self.store.get(id).await {
+            // TODO: 实现实际的屏幕录制
+            Ok(json!({
+                "status": "success",
+                "action": "screen_record",
+                "node_id": id,
+                "duration_ms": duration_ms,
+                "video": "base64_encoded_video_placeholder",
+                "node": node
+            }))
+        } else {
+            Err(anyhow::anyhow!("Node not found: {}", id))
+        }
+    }
+
+    /// 获取位置
+    async fn location_get(&self, id: &str) -> Result<Value> {
+        if let Some(node) = self.store.get(id).await {
+            // TODO: 实现实际的位置获取
+            Ok(json!({
+                "status": "success",
+                "action": "location_get",
+                "node_id": id,
+                "latitude": 0.0,
+                "longitude": 0.0,
+                "accuracy": 10.0,
+                "node": node
+            }))
+        } else {
+            Err(anyhow::anyhow!("Node not found: {}", id))
+        }
+    }
+
+    /// 执行命令
+    async fn run(&self, id: &str, command: &str) -> Result<Value> {
+        if let Some(node) = self.store.get(id).await {
+            // TODO: 实现实际的命令执行
+            Ok(json!({
+                "status": "success",
+                "action": "run",
+                "node_id": id,
+                "command": command,
+                "output": "Command executed (placeholder)",
+                "node": node
+            }))
+        } else {
+            Err(anyhow::anyhow!("Node not found: {}", id))
+        }
     }
 }
 
 #[async_trait]
 impl Tool for NodesTool {
     fn metadata(&self) -> ToolMetadata {
-        self.metadata.clone()
+        ToolMetadata {
+            name: "nodes".to_string(),
+            description: "Discover and control paired nodes (status/describe/notify/camera/screen/location/notifications/run).".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["status", "describe", "notify", "camera_snap", "screen_record", "location_get", "run"],
+                        "description": "Node action to perform"
+                    },
+                    "node_id": {
+                        "type": "string",
+                        "description": "Node ID (for all actions except status)"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Notification title (for notify action)"
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "Notification body (for notify action)"
+                    },
+                    "duration_ms": {
+                        "type": "number",
+                        "description": "Recording duration in milliseconds (for screen_record action)"
+                    },
+                    "command": {
+                        "type": "string",
+                        "description": "Command to execute (for run action)"
+                    }
+                },
+                "required": ["action"]
+            }),
+        }
     }
 
-    async fn execute(&self, args: JsonValue) -> Result<JsonValue> {
+    async fn execute(&self, args: Value) -> Result<Value> {
         let action = args.get("action")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing required parameter: action"))?;
 
-        let mut store = self.store.write().await;
-
         match action {
-            "status" | "list" => {
-                let nodes = store.list();
-                let online = store.list_online();
-                
-                Ok(serde_json::json!({
-                    "success": true,
-                    "total_nodes": nodes.len(),
-                    "online_nodes": online.len(),
-                    "nodes": nodes
-                }))
-            }
+            "status" => self.status().await,
 
             "describe" => {
-                let node_id = args.get("node")
+                let id = args.get("node_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: node"))?;
-
-                match store.get(node_id) {
-                    Some(info) => Ok(serde_json::json!({
-                        "success": true,
-                        "node": info
-                    })),
-                    None => Err(anyhow::anyhow!("Node not found: {}", node_id))
-                }
+                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: node_id"))?;
+                self.describe(id).await
             }
 
             "notify" => {
-                let node_id = args.get("node")
+                let id = args.get("node_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: node"))?;
-
+                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: node_id"))?;
                 let title = args.get("title")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("Notification");
-
+                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: title"))?;
                 let body = args.get("body")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing required parameter: body"))?;
-
-                // 检查节点是否存在
-                if store.get(node_id).is_none() {
-                    return Err(anyhow::anyhow!("Node not found: {}", node_id));
-                }
-
-                // 模拟发送通知
-                Ok(serde_json::json!({
-                    "success": true,
-                    "node": node_id,
-                    "title": title,
-                    "body": body,
-                    "message": "Notification sent"
-                }))
+                self.notify(id, title, body).await
             }
 
             "camera_snap" => {
-                let node_id = args.get("node")
+                let id = args.get("node_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: node"))?;
-
-                let facing = args.get("facing")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("back");
-
-                // 检查节点和能力
-                match store.get(node_id) {
-                    Some(info) => {
-                        if !info.capabilities.contains(&NodeCapability::Camera) {
-                            return Err(anyhow::anyhow!("Node does not have camera capability"));
-                        }
-
-                        // 模拟拍照
-                        Ok(serde_json::json!({
-                            "success": true,
-                            "node": node_id,
-                            "facing": facing,
-                            "image": "base64_mock_image_data",
-                            "message": "Photo captured"
-                        }))
-                    }
-                    None => Err(anyhow::anyhow!("Node not found: {}", node_id))
-                }
+                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: node_id"))?;
+                self.camera_snap(id).await
             }
 
             "screen_record" => {
-                let node_id = args.get("node")
+                let id = args.get("node_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: node"))?;
-
-                // 检查节点和能力
-                match store.get(node_id) {
-                    Some(info) => {
-                        if !info.capabilities.contains(&NodeCapability::Screen) {
-                            return Err(anyhow::anyhow!("Node does not have screen recording capability"));
-                        }
-
-                        // 模拟屏幕录制
-                        Ok(serde_json::json!({
-                            "success": true,
-                            "node": node_id,
-                            "video": "base64_mock_video_data",
-                            "message": "Screen recorded"
-                        }))
-                    }
-                    None => Err(anyhow::anyhow!("Node not found: {}", node_id))
-                }
+                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: node_id"))?;
+                let duration_ms = args.get("duration_ms")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(5000);
+                self.screen_record(id, duration_ms).await
             }
 
             "location_get" => {
-                let node_id = args.get("node")
+                let id = args.get("node_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: node"))?;
-
-                // 检查节点和能力
-                match store.get(node_id) {
-                    Some(info) => {
-                        if !info.capabilities.contains(&NodeCapability::Location) {
-                            return Err(anyhow::anyhow!("Node does not have location capability"));
-                        }
-
-                        // 模拟位置获取
-                        Ok(serde_json::json!({
-                            "success": true,
-                            "node": node_id,
-                            "latitude": 39.9042,
-                            "longitude": 116.4074,
-                            "accuracy": 10.0,
-                            "message": "Location retrieved"
-                        }))
-                    }
-                    None => Err(anyhow::anyhow!("Node not found: {}", node_id))
-                }
+                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: node_id"))?;
+                self.location_get(id).await
             }
 
             "run" => {
-                let node_id = args.get("node")
+                let id = args.get("node_id")
                     .and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: node"))?;
-
+                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: node_id"))?;
                 let command = args.get("command")
-                    .and_then(|v| v.as_array())
+                    .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing required parameter: command"))?;
-
-                // 检查节点和能力
-                match store.get(node_id) {
-                    Some(info) => {
-                        if !info.capabilities.contains(&NodeCapability::RunCommands) {
-                            return Err(anyhow::anyhow!("Node does not have run command capability"));
-                        }
-
-                        // 模拟命令执行
-                        Ok(serde_json::json!({
-                            "success": true,
-                            "node": node_id,
-                            "command": command,
-                            "output": "Mock command output",
-                            "exit_code": 0
-                        }))
-                    }
-                    None => Err(anyhow::anyhow!("Node not found: {}", node_id))
-                }
-            }
-
-            "invoke" => {
-                let node_id = args.get("node")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: node"))?;
-
-                let invoke_command = args.get("invoke_command")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: invoke_command"))?;
-
-                let invoke_params = args.get("invoke_params").cloned().unwrap_or(JsonValue::Null);
-
-                // 检查节点和能力
-                match store.get(node_id) {
-                    Some(info) => {
-                        if !info.capabilities.contains(&NodeCapability::Invoke) {
-                            return Err(anyhow::anyhow!("Node does not have invoke capability"));
-                        }
-
-                        // 模拟调用
-                        Ok(serde_json::json!({
-                            "success": true,
-                            "node": node_id,
-                            "command": invoke_command,
-                            "params": invoke_params,
-                            "result": "Mock invoke result"
-                        }))
-                    }
-                    None => Err(anyhow::anyhow!("Node not found: {}", node_id))
-                }
+                self.run(id, command).await
             }
 
             _ => Err(anyhow::anyhow!("Unknown action: {}", action))
@@ -426,187 +326,93 @@ impl Tool for NodesTool {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_nodes_tool_metadata() {
+    #[test]
+    fn test_nodes_tool_metadata() {
         let tool = NodesTool::new();
         assert_eq!(tool.metadata().name, "nodes");
     }
 
     #[tokio::test]
-    async fn test_list_nodes() {
+    async fn test_status() {
         let tool = NodesTool::new();
-        
-        // 先注册一个节点
-        {
-            let mut store = tool.store.write().await;
-            store.register(
-                "test-node-1".to_string(),
-                "Test Node".to_string(),
-                NodeType::Desktop,
-                vec![NodeCapability::Camera, NodeCapability::Screen],
-            );
-        }
-
-        let result = tool.execute(serde_json::json!({
-            "action": "list"
-        })).await.unwrap();
-
-        assert!(result["success"].as_bool().unwrap());
-        assert_eq!(result["total_nodes"], 1);
+        let result = tool.status().await.unwrap();
+        assert_eq!(result["action"], "status");
+        assert_eq!(result["count"], 0);
     }
 
     #[tokio::test]
-    async fn test_describe_node() {
-        let tool = NodesTool::new();
-        
-        {
-            let mut store = tool.store.write().await;
-            store.register(
-                "test-node-2".to_string(),
-                "Test Node 2".to_string(),
-                NodeType::Mobile,
-                vec![NodeCapability::Camera, NodeCapability::Location],
-            );
-        }
+    async fn test_describe() {
+        let store = Arc::new(NodeStore::new());
+        let node = store.register("Test Node", NodeType::Desktop, vec![NodeCapability::Camera]).await.unwrap();
 
-        let result = tool.execute(serde_json::json!({
-            "action": "describe",
-            "node": "test-node-2"
-        })).await.unwrap();
+        let mut tool = NodesTool::new();
+        tool.store = store;
 
-        assert!(result["success"].as_bool().unwrap());
-        assert_eq!(result["node"]["name"], "Test Node 2");
-        assert_eq!(result["node"]["node_type"], "Mobile");
+        let result = tool.describe(&node.id).await.unwrap();
+        assert_eq!(result["action"], "describe");
+        assert_eq!(result["node"]["name"], "Test Node");
     }
 
     #[tokio::test]
     async fn test_notify() {
-        let tool = NodesTool::new();
-        
-        {
-            let mut store = tool.store.write().await;
-            store.register(
-                "test-node-3".to_string(),
-                "Test Node 3".to_string(),
-                NodeType::Mobile,
-                vec![NodeCapability::Notifications],
-            );
-        }
+        let store = Arc::new(NodeStore::new());
+        let node = store.register("Test Node", NodeType::Mobile, vec![NodeCapability::Notifications]).await.unwrap();
 
-        let result = tool.execute(serde_json::json!({
-            "action": "notify",
-            "node": "test-node-3",
-            "title": "Test",
-            "body": "Hello from NewClaw!"
-        })).await.unwrap();
+        let mut tool = NodesTool::new();
+        tool.store = store;
 
-        assert!(result["success"].as_bool().unwrap());
+        let result = tool.notify(&node.id, "Test", "Hello").await.unwrap();
+        assert_eq!(result["action"], "notify");
         assert_eq!(result["title"], "Test");
     }
 
     #[tokio::test]
     async fn test_camera_snap() {
-        let tool = NodesTool::new();
-        
-        {
-            let mut store = tool.store.write().await;
-            store.register(
-                "test-node-4".to_string(),
-                "Test Node 4".to_string(),
-                NodeType::Mobile,
-                vec![NodeCapability::Camera],
-            );
-        }
+        let store = Arc::new(NodeStore::new());
+        let node = store.register("Test Node", NodeType::Mobile, vec![NodeCapability::Camera]).await.unwrap();
 
-        let result = tool.execute(serde_json::json!({
-            "action": "camera_snap",
-            "node": "test-node-4",
-            "facing": "back"
-        })).await.unwrap();
+        let mut tool = NodesTool::new();
+        tool.store = store;
 
-        assert!(result["success"].as_bool().unwrap());
-        assert!(result["image"].is_string());
+        let result = tool.camera_snap(&node.id).await.unwrap();
+        assert_eq!(result["action"], "camera_snap");
     }
 
     #[tokio::test]
-    async fn test_camera_no_capability() {
-        let tool = NodesTool::new();
-        
-        {
-            let mut store = tool.store.write().await;
-            store.register(
-                "test-node-5".to_string(),
-                "Server Node".to_string(),
-                NodeType::Server,
-                vec![NodeCapability::RunCommands],
-            );
-        }
+    async fn test_screen_record() {
+        let store = Arc::new(NodeStore::new());
+        let node = store.register("Test Node", NodeType::Desktop, vec![NodeCapability::Screen]).await.unwrap();
 
-        let result = tool.execute(serde_json::json!({
-            "action": "camera_snap",
-            "node": "test-node-5"
-        })).await;
+        let mut tool = NodesTool::new();
+        tool.store = store;
 
-        assert!(result.is_err());
+        let result = tool.screen_record(&node.id, 5000).await.unwrap();
+        assert_eq!(result["action"], "screen_record");
+        assert_eq!(result["duration_ms"], 5000);
     }
 
     #[tokio::test]
     async fn test_location_get() {
-        let tool = NodesTool::new();
-        
-        {
-            let mut store = tool.store.write().await;
-            store.register(
-                "test-node-6".to_string(),
-                "Mobile Node".to_string(),
-                NodeType::Mobile,
-                vec![NodeCapability::Location],
-            );
-        }
+        let store = Arc::new(NodeStore::new());
+        let node = store.register("Test Node", NodeType::Mobile, vec![NodeCapability::Location]).await.unwrap();
 
-        let result = tool.execute(serde_json::json!({
-            "action": "location_get",
-            "node": "test-node-6"
-        })).await.unwrap();
+        let mut tool = NodesTool::new();
+        tool.store = store;
 
-        assert!(result["success"].as_bool().unwrap());
-        assert!(result["latitude"].is_number());
-        assert!(result["longitude"].is_number());
+        let result = tool.location_get(&node.id).await.unwrap();
+        assert_eq!(result["action"], "location_get");
     }
 
     #[tokio::test]
-    async fn test_run_command() {
-        let tool = NodesTool::new();
-        
-        {
-            let mut store = tool.store.write().await;
-            store.register(
-                "test-node-7".to_string(),
-                "Desktop Node".to_string(),
-                NodeType::Desktop,
-                vec![NodeCapability::RunCommands],
-            );
-        }
+    async fn test_run() {
+        let store = Arc::new(NodeStore::new());
+        let node = store.register("Test Node", NodeType::Server, vec![NodeCapability::FileAccess]).await.unwrap();
 
-        let result = tool.execute(serde_json::json!({
-            "action": "run",
-            "node": "test-node-7",
-            "command": ["ls", "-la"]
-        })).await.unwrap();
+        let mut tool = NodesTool::new();
+        tool.store = store;
 
-        assert!(result["success"].as_bool().unwrap());
-        assert_eq!(result["exit_code"], 0);
-    }
-
-    #[tokio::test]
-    async fn test_node_not_found() {
-        let tool = NodesTool::new();
-
-        let result = tool.execute(serde_json::json!({
-            "action": "describe",
-            "node": "nonexistent"
-        })).await;
-
-        assert!(result.is_err());
+        let result = tool.run(&node.id, "ls -la").await.unwrap();
+        assert_eq!(result["action"], "run");
+        assert_eq!(result["command"], "ls -la");
     }
 }

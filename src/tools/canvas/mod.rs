@@ -1,176 +1,170 @@
-//! Canvas Display Tool
-//! 
-//! Provides visual display capabilities:
-//! - Present URL/HTML content
-//! - Snapshot (screenshot)
-//! - Execute JavaScript
-//! - Navigate
-
-use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-
-use crate::tools::{Tool, ToolMetadata};
+// Canvas 展示工具 (简化版，占位符实现)
+use crate::tools::{Tool, ToolMetadata, Value};
 use anyhow::Result;
+use async_trait::async_trait;
+use serde_json::json;
 
-/// Canvas actions
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CanvasAction {
-    /// Present content (URL or HTML)
-    Present,
-    /// Take snapshot (screenshot)
-    Snapshot,
-    /// Execute JavaScript
-    Eval,
-    /// Navigate to URL
-    Navigate,
-    /// Hide canvas
-    Hide,
+/// Canvas 配置
+#[derive(Debug, Clone)]
+pub struct CanvasConfig {
+    pub headless: bool,
+    pub viewport_width: u32,
+    pub viewport_height: u32,
 }
 
-/// Canvas tool parameters
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CanvasParams {
-    /// Action to perform
-    pub action: CanvasAction,
-    /// URL to display (for present, navigate)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    /// HTML content (for present)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub html: Option<String>,
-    /// JavaScript to execute (for eval)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub script: Option<String>,
-    /// Canvas dimensions
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub width: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub height: Option<u32>,
-    /// Output format (for snapshot)
-    #[serde(default = "default_format")]
-    pub format: String,
+impl Default for CanvasConfig {
+    fn default() -> Self {
+        Self {
+            headless: true,
+            viewport_width: 1920,
+            viewport_height: 1080,
+        }
+    }
 }
 
-fn default_format() -> String {
-    "png".to_string()
-}
-
-/// Canvas tool result
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CanvasResult {
-    /// Success status
-    pub success: bool,
-    /// Result data
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<Value>,
-    /// Image data (base64, for snapshot)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub image: Option<String>,
-    /// Error message
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-}
-
-/// Canvas Display Tool
+/// Canvas 展示工具
 pub struct CanvasTool {
-    metadata: ToolMetadata,
+    config: CanvasConfig,
 }
 
 impl CanvasTool {
     pub fn new() -> Self {
         Self {
-            metadata: ToolMetadata {
-                name: "canvas".to_string(),
-                description: "Display visual content in a canvas. Actions: present (URL/HTML), snapshot (screenshot), eval (JS), navigate, hide.".to_string(),
-                parameters: serde_json::to_value(CanvasParams {
-                    action: CanvasAction::Present,
-                    url: None,
-                    html: None,
-                    script: None,
-                    width: None,
-                    height: None,
-                    format: "png".to_string(),
-                }).unwrap(),
-            },
+            config: CanvasConfig::default(),
         }
     }
-}
 
-impl Default for CanvasTool {
-    fn default() -> Self {
-        Self::new()
+    pub fn with_config(config: CanvasConfig) -> Self {
+        Self { config }
+    }
+
+    /// 展示内容（URL 或 HTML）
+    async fn present(&self, url: Option<&str>, html: Option<&str>) -> Result<Value> {
+        if url.is_none() && html.is_none() {
+            return Err(anyhow::anyhow!("Either url or html must be provided"));
+        }
+
+        Ok(json!({
+            "status": "success",
+            "action": "present",
+            "url": url,
+            "html_provided": html.is_some(),
+            "message": "Canvas presented (placeholder - Chrome integration pending)"
+        }))
+    }
+
+    /// 隐藏 Canvas
+    async fn hide(&self) -> Result<Value> {
+        Ok(json!({
+            "status": "success",
+            "action": "hide",
+            "message": "Canvas hidden (placeholder - Chrome integration pending)"
+        }))
+    }
+
+    /// 导航到 URL
+    async fn navigate(&self, url: &str) -> Result<Value> {
+        Ok(json!({
+            "status": "success",
+            "action": "navigate",
+            "url": url,
+            "message": "Navigated (placeholder - Chrome integration pending)"
+        }))
+    }
+
+    /// 执行 JavaScript
+    async fn eval(&self, script: &str) -> Result<Value> {
+        Ok(json!({
+            "status": "success",
+            "action": "eval",
+            "script": script,
+            "result": "Script executed (placeholder - Chrome integration pending)"
+        }))
+    }
+
+    /// 截图
+    async fn snapshot(&self, selector: Option<&str>) -> Result<Value> {
+        Ok(json!({
+            "status": "success",
+            "action": "snapshot",
+            "selector": selector,
+            "image": "base64_encoded_image_placeholder",
+            "message": "Snapshot taken (placeholder - Chrome integration pending)"
+        }))
     }
 }
 
 #[async_trait]
 impl Tool for CanvasTool {
     fn metadata(&self) -> ToolMetadata {
-        self.metadata.clone()
+        ToolMetadata {
+            name: "canvas".to_string(),
+            description: "Present and control canvas for displaying web content. Actions: present, hide, navigate, eval, snapshot.".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["present", "hide", "navigate", "eval", "snapshot"],
+                        "description": "Canvas action to perform"
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "URL to present or navigate to"
+                    },
+                    "html": {
+                        "type": "string",
+                        "description": "HTML content to present"
+                    },
+                    "script": {
+                        "type": "string",
+                        "description": "JavaScript to execute"
+                    },
+                    "selector": {
+                        "type": "string",
+                        "description": "CSS selector for snapshot (optional)"
+                    }
+                },
+                "required": ["action"]
+            }),
+        }
     }
 
-    async fn execute(&self, params: Value) -> Result<Value> {
-        let params: CanvasParams = serde_json::from_value(params)
-            .map_err(|e| anyhow::anyhow!("Invalid params: {}", e))?;
+    async fn execute(&self, args: Value) -> Result<Value> {
+        let action = args.get("action")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| anyhow::anyhow!("Missing required parameter: action"))?;
 
-        let result = match params.action {
-            CanvasAction::Present => {
-                let is_url = params.url.is_some();
-                let content = params.url.or(params.html).unwrap_or_default();
-                CanvasResult {
-                    success: true,
-                    data: Some(serde_json::json!({
-                        "action": "present",
-                        "content_type": if is_url { "url" } else { "html" },
-                        "dimensions": {
-                            "width": params.width.unwrap_or(800),
-                            "height": params.height.unwrap_or(600),
-                        }
-                    })),
-                    image: None,
-                    error: None,
-                }
+        match action {
+            "present" => {
+                let url = args.get("url").and_then(|v| v.as_str());
+                let html = args.get("html").and_then(|v| v.as_str());
+                self.present(url, html).await
             }
-            CanvasAction::Snapshot => CanvasResult {
-                success: true,
-                data: Some(serde_json::json!({
-                    "format": params.format,
-                    "width": params.width.unwrap_or(800),
-                    "height": params.height.unwrap_or(600),
-                })),
-                image: Some("base64_mock_image".to_string()),
-                error: None,
-            },
-            CanvasAction::Eval => CanvasResult {
-                success: true,
-                data: Some(serde_json::json!({
-                    "script": params.script,
-                    "result": null
-                })),
-                image: None,
-                error: None,
-            },
-            CanvasAction::Navigate => CanvasResult {
-                success: true,
-                data: Some(serde_json::json!({
-                    "url": params.url,
-                    "status": "navigated"
-                })),
-                image: None,
-                error: None,
-            },
-            CanvasAction::Hide => CanvasResult {
-                success: true,
-                data: Some(serde_json::json!({
-                    "status": "hidden"
-                })),
-                image: None,
-                error: None,
-            },
-        };
 
-        serde_json::to_value(result).map_err(Into::into)
+            "hide" => self.hide().await,
+
+            "navigate" => {
+                let url = args.get("url")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: url"))?;
+                self.navigate(url).await
+            }
+
+            "eval" => {
+                let script = args.get("script")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: script"))?;
+                self.eval(script).await
+            }
+
+            "snapshot" => {
+                let selector = args.get("selector").and_then(|v| v.as_str());
+                self.snapshot(selector).await
+            }
+
+            _ => Err(anyhow::anyhow!("Unknown action: {}", action))
+        }
     }
 }
 
@@ -184,32 +178,47 @@ mod tests {
         assert_eq!(tool.metadata().name, "canvas");
     }
 
-    #[test]
-    fn test_present_url() {
+    #[tokio::test]
+    async fn test_present_url() {
         let tool = CanvasTool::new();
-        let params = serde_json::json!({
-            "action": "present",
-            "url": "https://example.com"
-        });
-        
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let result = rt.block_on(tool.execute(params)).unwrap();
-        
-        assert!(result["success"].as_bool().unwrap());
+        let result = tool.present(Some("https://example.com"), None).await.unwrap();
+        assert_eq!(result["action"], "present");
+        assert_eq!(result["url"], "https://example.com");
     }
 
-    #[test]
-    fn test_snapshot() {
+    #[tokio::test]
+    async fn test_present_html() {
         let tool = CanvasTool::new();
-        let params = serde_json::json!({
-            "action": "snapshot",
-            "format": "png"
-        });
-        
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let result = rt.block_on(tool.execute(params)).unwrap();
-        
-        assert!(result["success"].as_bool().unwrap());
-        assert!(result["image"].is_string());
+        let result = tool.present(None, Some("<h1>Hello</h1>")).await.unwrap();
+        assert_eq!(result["action"], "present");
+        assert_eq!(result["html_provided"], true);
+    }
+
+    #[tokio::test]
+    async fn test_hide() {
+        let tool = CanvasTool::new();
+        let result = tool.hide().await.unwrap();
+        assert_eq!(result["action"], "hide");
+    }
+
+    #[tokio::test]
+    async fn test_navigate() {
+        let tool = CanvasTool::new();
+        let result = tool.navigate("https://example.com").await.unwrap();
+        assert_eq!(result["action"], "navigate");
+    }
+
+    #[tokio::test]
+    async fn test_eval() {
+        let tool = CanvasTool::new();
+        let result = tool.eval("console.log('test')").await.unwrap();
+        assert_eq!(result["action"], "eval");
+    }
+
+    #[tokio::test]
+    async fn test_snapshot() {
+        let tool = CanvasTool::new();
+        let result = tool.snapshot(None).await.unwrap();
+        assert_eq!(result["action"], "snapshot");
     }
 }

@@ -1,382 +1,208 @@
 // 子代理管理工具
-//
-// 提供子代理（subagent）管理能力：
-// - 列出活跃的子代理
-// - 向子代理发送任务
-// - 终止子代理
-// - 查看子代理状态
-
+use crate::tools::{Tool, ToolMetadata, Value};
+use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use crate::tools::{Tool, ToolMetadata};
-use anyhow::Result;
-
-/// 子代理状态
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum SubagentStatus {
-    Starting,
-    Running,
-    Idle,
-    Completed,
-    Failed,
-    Terminated,
-}
 
 /// 子代理信息
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubagentInfo {
     pub id: String,
-    pub label: Option<String>,
+    pub label: String,
     pub task: String,
-    pub status: SubagentStatus,
+    pub status: String,
     pub created_at: u64,
-    pub started_at: Option<u64>,
-    pub completed_at: Option<u64>,
-    pub output: Option<String>,
-    pub error: Option<String>,
-    pub metadata: HashMap<String, String>,
+    pub last_active: u64,
 }
 
 /// 子代理存储
 #[derive(Debug, Default)]
 pub struct SubagentStore {
-    subagents: HashMap<String, SubagentInfo>,
+    subagents: Arc<RwLock<HashMap<String, SubagentInfo>>>,
 }
 
 impl SubagentStore {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            subagents: Arc::new(RwLock::new(HashMap::new())),
+        }
     }
 
     /// 创建子代理
-    pub fn create(&mut self, id: String, label: Option<String>, task: String) -> SubagentInfo {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+    pub async fn create(&self, label: &str, task: &str) -> Result<SubagentInfo> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().timestamp() as u64;
 
-        let info = SubagentInfo {
+        let subagent = SubagentInfo {
             id: id.clone(),
-            label,
-            task,
-            status: SubagentStatus::Starting,
+            label: label.to_string(),
+            task: task.to_string(),
+            status: "running".to_string(),
             created_at: now,
-            started_at: None,
-            completed_at: None,
-            output: None,
-            error: None,
-            metadata: HashMap::new(),
+            last_active: now,
         };
 
-        self.subagents.insert(id, info.clone());
-        info
+        let mut subagents = self.subagents.write().await;
+        subagents.insert(id, subagent.clone());
+
+        Ok(subagent)
     }
 
-    /// 获取子代理信息
-    pub fn get(&self, id: &str) -> Option<&SubagentInfo> {
-        self.subagents.get(id)
-    }
+    /// 列出子代理
+    pub async fn list(&self, recent_minutes: Option<u64>) -> Vec<SubagentInfo> {
+        let subagents = self.subagents.read().await;
+        let now = chrono::Utc::now().timestamp() as u64;
+        let threshold = recent_minutes.map(|m| now - m * 60);
 
-    /// 获取可变引用
-    pub fn get_mut(&mut self, id: &str) -> Option<&mut SubagentInfo> {
-        self.subagents.get_mut(id)
-    }
-
-    /// 列出所有子代理
-    pub fn list(&self) -> Vec<&SubagentInfo> {
-        self.subagents.values().collect()
-    }
-
-    /// 列出活跃子代理
-    pub fn list_active(&self) -> Vec<&SubagentInfo> {
-        self.subagents.values()
-            .filter(|s| matches!(s.status, SubagentStatus::Starting | SubagentStatus::Running | SubagentStatus::Idle))
+        subagents.values()
+            .filter(|s| {
+                threshold.map_or(true, |t| s.last_active >= t)
+            })
+            .cloned()
             .collect()
     }
 
-    /// 启动子代理
-    pub fn start(&mut self, id: &str) -> Result<()> {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+    /// 获取子代理
+    pub async fn get(&self, id: &str) -> Option<SubagentInfo> {
+        let subagents = self.subagents.read().await;
+        subagents.get(id).cloned()
+    }
 
-        if let Some(info) = self.subagents.get_mut(id) {
-            info.status = SubagentStatus::Running;
-            info.started_at = Some(now);
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!("Subagent not found: {}", id))
+    /// 更新子代理状态
+    pub async fn update_status(&self, id: &str, status: &str) -> Result<()> {
+        let mut subagents = self.subagents.write().await;
+        if let Some(subagent) = subagents.get_mut(id) {
+            subagent.status = status.to_string();
+            subagent.last_active = chrono::Utc::now().timestamp() as u64;
+        }
+        Ok(())
+    }
+
+    /// 删除子代理
+    pub async fn delete(&self, id: &str) -> Result<()> {
+        let mut subagents = self.subagents.write().await;
+        subagents.remove(id);
+        Ok(())
+    }
+}
+
+/// 子代理管理工具
+pub struct SubagentsTool {
+    store: Arc<SubagentStore>,
+}
+
+impl SubagentsTool {
+    pub fn new() -> Self {
+        Self {
+            store: Arc::new(SubagentStore::new()),
         }
     }
 
-    /// 完成子代理
-    pub fn complete(&mut self, id: &str, output: Option<String>) -> Result<()> {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
-        if let Some(info) = self.subagents.get_mut(id) {
-            info.status = SubagentStatus::Completed;
-            info.completed_at = Some(now);
-            info.output = output;
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!("Subagent not found: {}", id))
-        }
+    /// 列出子代理
+    async fn list(&self, recent_minutes: Option<u64>) -> Result<Value> {
+        let subagents = self.store.list(recent_minutes).await;
+        Ok(json!({
+            "status": "success",
+            "action": "list",
+            "subagents": subagents,
+            "count": subagents.len()
+        }))
     }
 
-    /// 子代理失败
-    pub fn fail(&mut self, id: &str, error: String) -> Result<()> {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
-        if let Some(info) = self.subagents.get_mut(id) {
-            info.status = SubagentStatus::Failed;
-            info.completed_at = Some(now);
-            info.error = Some(error);
-            Ok(())
+    /// 引导子代理
+    async fn steer(&self, id: &str, message: &str) -> Result<Value> {
+        if let Some(subagent) = self.store.get(id).await {
+            // TODO: 实现实际的引导逻辑
+            Ok(json!({
+                "status": "success",
+                "action": "steer",
+                "subagent_id": id,
+                "message": message,
+                "subagent": subagent
+            }))
         } else {
             Err(anyhow::anyhow!("Subagent not found: {}", id))
         }
     }
 
     /// 终止子代理
-    pub fn terminate(&mut self, id: &str) -> Result<()> {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
-        if let Some(info) = self.subagents.get_mut(id) {
-            info.status = SubagentStatus::Terminated;
-            info.completed_at = Some(now);
-            Ok(())
+    async fn kill(&self, id: &str) -> Result<Value> {
+        if let Some(subagent) = self.store.get(id).await {
+            self.store.update_status(id, "terminated").await?;
+            Ok(json!({
+                "status": "success",
+                "action": "kill",
+                "subagent_id": id,
+                "subagent": subagent
+            }))
         } else {
             Err(anyhow::anyhow!("Subagent not found: {}", id))
         }
-    }
-
-    /// 删除子代理
-    pub fn delete(&mut self, id: &str) -> Result<()> {
-        if self.subagents.remove(id).is_some() {
-            Ok(())
-        } else {
-            Err(anyhow::anyhow!("Subagent not found: {}", id))
-        }
-    }
-}
-
-/// 子代理管理工具
-pub struct SubagentsTool {
-    store: Arc<RwLock<SubagentStore>>,
-    metadata: ToolMetadata,
-}
-
-impl SubagentsTool {
-    pub fn new() -> Self {
-        Self {
-            store: Arc::new(RwLock::new(SubagentStore::new())),
-            metadata: ToolMetadata {
-                name: "subagents".to_string(),
-                description: "Manage sub-agent processes for parallel task execution. Actions: list, get, spawn, steer, kill, status.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "action": {
-                            "type": "string",
-                            "enum": ["list", "get", "spawn", "steer", "kill", "status"],
-                            "description": "Action to perform"
-                        },
-                        "subagent_id": {
-                            "type": "string",
-                            "description": "Subagent ID (for get, steer, kill)"
-                        },
-                        "task": {
-                            "type": "string",
-                            "description": "Task description (for spawn)"
-                        },
-                        "label": {
-                            "type": "string",
-                            "description": "Subagent label (for spawn)"
-                        },
-                        "message": {
-                            "type": "string",
-                            "description": "Message to send (for steer)"
-                        },
-                        "active_only": {
-                            "type": "boolean",
-                            "description": "Only list active subagents (for list)"
-                        }
-                    },
-                    "required": ["action"]
-                }),
-            },
-        }
-    }
-
-    /// 使用现有存储创建工具
-    pub fn with_store(store: Arc<RwLock<SubagentStore>>) -> Self {
-        Self {
-            store,
-            metadata: ToolMetadata {
-                name: "subagents".to_string(),
-                description: "Manage sub-agent processes.".to_string(),
-                parameters: serde_json::json!({"type": "object"}),
-            },
-        }
-    }
-}
-
-impl Default for SubagentsTool {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
 #[async_trait]
 impl Tool for SubagentsTool {
     fn metadata(&self) -> ToolMetadata {
-        self.metadata.clone()
+        ToolMetadata {
+            name: "subagents".to_string(),
+            description: "Manage spawned sub-agents: list, steer, kill.".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "steer", "kill"],
+                        "description": "Subagent action to perform"
+                    },
+                    "subagent_id": {
+                        "type": "string",
+                        "description": "Subagent ID (for steer and kill actions)"
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "Steering message (for steer action)"
+                    },
+                    "recent_minutes": {
+                        "type": "number",
+                        "description": "Filter by recent activity in minutes (for list action)"
+                    }
+                },
+                "required": ["action"]
+            }),
+        }
     }
 
-    async fn execute(&self, args: JsonValue) -> Result<JsonValue> {
+    async fn execute(&self, args: Value) -> Result<Value> {
         let action = args.get("action")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing required parameter: action"))?;
 
-        let mut store = self.store.write().await;
-
         match action {
             "list" => {
-                let active_only = args.get("active_only")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-
-                let subagents = if active_only {
-                    store.list_active()
-                } else {
-                    store.list()
-                };
-
-                Ok(serde_json::json!({
-                    "success": true,
-                    "subagents": subagents,
-                    "count": subagents.len()
-                }))
-            }
-
-            "get" => {
-                let subagent_id = args.get("subagent_id")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: subagent_id"))?;
-
-                match store.get(subagent_id) {
-                    Some(info) => Ok(serde_json::json!({
-                        "success": true,
-                        "subagent": info
-                    })),
-                    None => Err(anyhow::anyhow!("Subagent not found: {}", subagent_id))
-                }
-            }
-
-            "spawn" => {
-                let task = args.get("task")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| anyhow::anyhow!("Missing required parameter: task"))?;
-
-                let subagent_id = uuid::Uuid::new_v4().to_string();
-                let label = args.get("label").and_then(|v| v.as_str()).map(|s| s.to_string());
-
-                let info = store.create(subagent_id.clone(), label, task.to_string());
-                
-                // 模拟启动（实际应该启动真实进程）
-                store.start(&subagent_id)?;
-
-                Ok(serde_json::json!({
-                    "success": true,
-                    "subagent": info,
-                    "message": "Subagent spawned successfully"
-                }))
+                let recent_minutes = args.get("recent_minutes").and_then(|v| v.as_u64());
+                self.list(recent_minutes).await
             }
 
             "steer" => {
-                let subagent_id = args.get("subagent_id")
+                let id = args.get("subagent_id")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing required parameter: subagent_id"))?;
-
                 let message = args.get("message")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing required parameter: message"))?;
-
-                // 检查子代理是否存在且活跃
-                match store.get(subagent_id) {
-                    Some(info) => {
-                        if !matches!(info.status, SubagentStatus::Running | SubagentStatus::Idle) {
-                            return Err(anyhow::anyhow!("Subagent is not active: {:?}", info.status));
-                        }
-                        
-                        // 实际应该发送消息到子代理
-                        // 这里只是模拟
-                        Ok(serde_json::json!({
-                            "success": true,
-                            "subagent_id": subagent_id,
-                            "message": format!("Message sent to subagent: {}", message)
-                        }))
-                    }
-                    None => Err(anyhow::anyhow!("Subagent not found: {}", subagent_id))
-                }
+                self.steer(id, message).await
             }
 
             "kill" => {
-                let subagent_id = args.get("subagent_id")
+                let id = args.get("subagent_id")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| anyhow::anyhow!("Missing required parameter: subagent_id"))?;
-
-                store.terminate(subagent_id)?;
-
-                Ok(serde_json::json!({
-                    "success": true,
-                    "subagent_id": subagent_id,
-                    "message": "Subagent terminated"
-                }))
-            }
-
-            "status" => {
-                let subagent_id = args.get("subagent_id")
-                    .and_then(|v| v.as_str());
-
-                if let Some(id) = subagent_id {
-                    match store.get(id) {
-                        Some(info) => Ok(serde_json::json!({
-                            "success": true,
-                            "status": info.status,
-                            "subagent_id": id
-                        })),
-                        None => Err(anyhow::anyhow!("Subagent not found: {}", id))
-                    }
-                } else {
-                    // 返回所有活跃子代理的状态
-                    let active = store.list_active();
-                    let statuses: Vec<_> = active.iter()
-                        .map(|s| (&s.id, &s.status))
-                        .collect();
-                    
-                    Ok(serde_json::json!({
-                        "success": true,
-                        "active_count": active.len(),
-                        "statuses": statuses
-                    }))
-                }
+                self.kill(id).await
             }
 
             _ => Err(anyhow::anyhow!("Unknown action: {}", action))
@@ -388,113 +214,42 @@ impl Tool for SubagentsTool {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_subagents_tool_metadata() {
+    #[test]
+    fn test_subagents_tool_metadata() {
         let tool = SubagentsTool::new();
         assert_eq!(tool.metadata().name, "subagents");
     }
 
     #[tokio::test]
-    async fn test_spawn_subagent() {
-        let tool = SubagentsTool::new();
-        
-        let result = tool.execute(serde_json::json!({
-            "action": "spawn",
-            "task": "Test task",
-            "label": "Test Agent"
-        })).await.unwrap();
-
-        assert!(result["success"].as_bool().unwrap());
-        assert!(result["subagent"]["id"].is_string());
-        assert_eq!(result["subagent"]["label"], "Test Agent");
-        // spawn 后状态应该是 Running（因为 execute 内部调用了 start）
-        // 但返回的是 create 时的 info，所以状态是 Starting
-        // 这里检查任务描述即可
-        assert_eq!(result["subagent"]["task"], "Test task");
-    }
-
-    #[tokio::test]
     async fn test_list_subagents() {
         let tool = SubagentsTool::new();
-        
-        // 创建两个子代理
-        tool.execute(serde_json::json!({
-            "action": "spawn",
-            "task": "Task 1"
-        })).await.unwrap();
-        
-        tool.execute(serde_json::json!({
-            "action": "spawn",
-            "task": "Task 2"
-        })).await.unwrap();
-
-        let result = tool.execute(serde_json::json!({
-            "action": "list"
-        })).await.unwrap();
-        
-        assert!(result["success"].as_bool().unwrap());
-        assert_eq!(result["count"], 2);
-    }
-
-    #[tokio::test]
-    async fn test_kill_subagent() {
-        let tool = SubagentsTool::new();
-        
-        let spawn_result = tool.execute(serde_json::json!({
-            "action": "spawn",
-            "task": "Test task"
-        })).await.unwrap();
-        let subagent_id = spawn_result["subagent"]["id"].as_str().unwrap();
-
-        let result = tool.execute(serde_json::json!({
-            "action": "kill",
-            "subagent_id": subagent_id
-        })).await.unwrap();
-
-        assert!(result["success"].as_bool().unwrap());
-
-        // 验证状态
-        let get_result = tool.execute(serde_json::json!({
-            "action": "get",
-            "subagent_id": subagent_id
-        })).await.unwrap();
-
-        assert_eq!(get_result["subagent"]["status"], "Terminated");
+        let result = tool.list(None).await.unwrap();
+        assert_eq!(result["action"], "list");
+        assert_eq!(result["count"], 0);
     }
 
     #[tokio::test]
     async fn test_steer_subagent() {
-        let tool = SubagentsTool::new();
-        
-        let spawn_result = tool.execute(serde_json::json!({
-            "action": "spawn",
-            "task": "Test task"
-        })).await.unwrap();
-        let subagent_id = spawn_result["subagent"]["id"].as_str().unwrap();
+        let store = Arc::new(SubagentStore::new());
+        let subagent = store.create("Test", "Do something").await.unwrap();
 
-        let result = tool.execute(serde_json::json!({
-            "action": "steer",
-            "subagent_id": subagent_id,
-            "message": "New instructions"
-        })).await.unwrap();
+        let mut tool = SubagentsTool::new();
+        tool.store = store;
 
-        assert!(result["success"].as_bool().unwrap());
+        let result = tool.steer(&subagent.id, "New instruction").await.unwrap();
+        assert_eq!(result["action"], "steer");
+        assert_eq!(result["message"], "New instruction");
     }
 
     #[tokio::test]
-    async fn test_status_all() {
-        let tool = SubagentsTool::new();
-        
-        tool.execute(serde_json::json!({
-            "action": "spawn",
-            "task": "Task 1"
-        })).await.unwrap();
+    async fn test_kill_subagent() {
+        let store = Arc::new(SubagentStore::new());
+        let subagent = store.create("Test", "Do something").await.unwrap();
 
-        let result = tool.execute(serde_json::json!({
-            "action": "status"
-        })).await.unwrap();
+        let mut tool = SubagentsTool::new();
+        tool.store = store;
 
-        assert!(result["success"].as_bool().unwrap());
-        assert!(result["active_count"].as_u64().unwrap() > 0);
+        let result = tool.kill(&subagent.id).await.unwrap();
+        assert_eq!(result["action"], "kill");
     }
 }

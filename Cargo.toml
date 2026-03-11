@@ -54,6 +54,15 @@ rand = "0.8"
 # Token counting (v0.5.0)
 tiktoken-rs = "0.5"
 
+# Headless Chrome (v0.5.0 - browser/canvas tools)
+headless_chrome = "1.0"
+
+# Image processing (v0.5.0 - screenshots)
+image = "0.25"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
 # XML parsing for WeCom
 quick-xml = { version = "0.37", features = ["serialize"] }
 
@@ -81,9 +90,6 @@ redis = { version = "0.27", optional = true, features = ["aio", "tokio-comp"] }
 # Password hashing
 password-hash = "0.5"
 argon2 = "0.5"
-
-# Time handling
-chrono = { version = "0.4", features = ["serde"] }
 
 # CLI
 clap = { version = "4.5", features = ["derive"] }
