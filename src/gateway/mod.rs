@@ -12,6 +12,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use tower_http::services::ServeDir;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -122,10 +123,16 @@ pub async fn run_server(config: Config) -> anyhow::Result<()> {
 }
 
 fn create_router(state: Arc<GatewayState>) -> Router {
+    // Dashboard 静态文件路径
+    let dashboard_path = std::env::var("NEWCLAW_DASHBOARD_PATH")
+        .unwrap_or_else(|_| "/opt/newclaw/dashboard".to_string());
+    
     Router::new()
         .route("/health", get(health_check))
         .route("/ready", get(readiness_check))
         .route("/chat", post(chat))
+        // Dashboard 静态文件服务
+        .fallback_service(ServeDir::new(&dashboard_path))
         .with_state(state)
 }
 
