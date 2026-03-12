@@ -272,6 +272,7 @@ impl RecoveryExecutor {
             "clear_cache" => self.clear_cache().await,
             "rollback_config" => self.rollback_config().await,
             "release_resources" => self.release_resources().await,
+            "ai_diagnosis" => self.ai_diagnosis().await,
             "notify_human" => self.notify_human().await,
             "enter_safe_mode" => self.enter_safe_mode().await,
             _ => Err(anyhow::anyhow!("Unknown action: {}", action.name)),
@@ -301,6 +302,19 @@ impl RecoveryExecutor {
     async fn release_resources(&self) -> anyhow::Result<String> {
         tokio::time::sleep(Duration::from_millis(50)).await;
         Ok("Resources released".to_string())
+    }
+    
+    /// L2 动作：AI 诊断
+    async fn ai_diagnosis(&self) -> anyhow::Result<String> {
+        // TODO: 调用 LLM 分析日志，生成修复建议
+        // 当前返回模拟结果
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        self.audit_log.log(AuditEvent::new(
+            EventType::AiDiagnosisStarted,
+            "watchdog".to_string(),
+            "AI diagnosis started".to_string(),
+        ))?;
+        Ok("AI diagnosis completed: suggested action is restart_service".to_string())
     }
     
     /// L3 动作：通知人工

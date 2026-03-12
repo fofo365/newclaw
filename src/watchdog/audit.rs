@@ -82,6 +82,10 @@ pub enum EventType {
     DegradedMode,
     /// 人工介入
     HumanIntervention,
+    /// AI 诊断开始
+    AiDiagnosisStarted,
+    /// AI 诊断完成
+    AiDiagnosisCompleted,
     /// 配置变更
     ConfigChanged,
 }
