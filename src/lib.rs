@@ -46,6 +46,12 @@ pub mod router;
 // v0.5.2 - Skill (OpenClaw Skill 兼容)
 pub mod skill;
 
+// v0.5.4 - 健康检查
+pub mod health;
+
+// v0.5.4 - 指标导出
+pub mod metrics;
+
 // Re-export main types
 pub use core::AgentEngine;
 pub use core::{ContextManager, ContextConfig, ContextChunk};

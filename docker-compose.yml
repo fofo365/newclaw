@@ -1,0 +1,125 @@
+version: '3.8'
+
+services:
+  newclaw:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: newclaw:0.5.4
+    container_name: newclaw-gateway
+    restart: unless-stopped
+    ports:
+      - "3000:3000"   # API port
+      - "9090:9090"   # Metrics port
+    environment:
+      - RUST_LOG=info
+      - NEWCLAW_CONFIG=/etc/newclaw/config.toml
+      - REDIS_URL=redis://redis:6379
+      - DATABASE_URL=postgres://newclaw:newclaw@postgres:5432/newclaw
+    volumes:
+      - newclaw-data:/var/lib/newclaw
+      - newclaw-logs:/var/log/newclaw
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - newclaw-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  redis:
+    image: redis:7-alpine
+    container_name: newclaw-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - newclaw-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    command: redis-server --appendonly yes
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: newclaw-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=newclaw
+      - POSTGRES_PASSWORD=newclaw
+      - POSTGRES_DB=newclaw
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - newclaw-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U newclaw"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: newclaw-prometheus
+    restart: unless-stopped
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - newclaw-network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: newclaw-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - newclaw-network
+    depends_on:
+      - prometheus
+
+networks:
+  newclaw-network:
+    driver: bridge
+
+volumes:
+  newclaw-data:
+  newclaw-logs:
+  redis-data:
+  postgres-data:
+  prometheus-data:
+  grafana-data:

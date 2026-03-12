@@ -1,98 +1,50 @@
-# NewClaw Configuration Example
-# Copy this file to config/production.toml and customize
+# NewClaw Default Configuration
+# v0.5.4
 
 [server]
-# HTTP server configuration
 host = "0.0.0.0"
-port = 8080
-workers = 4
-
-[server.tls]
-# TLS configuration (optional)
-enabled = false
-cert_path = "./certs/server.crt"
-key_path = "./certs/server.key"
-
-[api_keys]
-# API Key authentication
-# In production, use environment variables or secret management
-keys = [
-    { key = "dev-api-key-change-me", name = "Development", scopes = ["read", "write", "admin"] },
-    { key = "prod-api-key-change-me", name = "Production", scopes = ["read", "write"] }
-]
-
-[jwt]
-# JWT token configuration
-secret = "change-this-secret-in-production-use-256-bits"
-issuer = "newclaw"
-expiry_hours = 24
-
-[rbac]
-# Role-Based Access Control configuration
-[[rbac.roles]]
-name = "admin"
-permissions = [
-    { resource = "*", action = "*" }
-]
-
-[[rbac.roles]]
-name = "editor"
-permissions = [
-    { resource = "posts", action = "read" },
-    { resource = "posts", action = "write" },
-    { resource = "comments", action = "read" },
-    { resource = "comments", action = "write" }
-]
-
-[[rbac.roles]]
-name = "viewer"
-permissions = [
-    { resource = "posts", action = "read" },
-    { resource = "comments", action = "read" }
-]
-
-[audit]
-# Audit logging configuration
-enabled = true
-log_path = "./logs/audit.log"
-max_entries = 100000
-rotation = "daily"  # daily, weekly, monthly
-
-[rate_limiting]
-# Rate limiting configuration
-enabled = true
-algorithm = "token_bucket"  # token_bucket, sliding_window
-requests_per_minute = 60
-burst_size = 10
-
-[message_queue]
-# Inter-agent message queue configuration
-max_size = 10000
-processing_timeout_ms = 5000
-retry_attempts = 3
-retry_delay_ms = 1000
-
-[websocket]
-# WebSocket configuration
-enabled = true
-max_connections = 1000
-ping_interval_seconds = 30
-max_message_size_bytes = 1048576  # 1MB
-
-[context]
-# Context management configuration
-max_contexts = 1000
-context_timeout_seconds = 3600  # 1 hour
-cleanup_interval_seconds = 300  # 5 minutes
+port = 3000
+metrics_port = 9090
 
 [logging]
-# Logging configuration
-level = "info"  # trace, debug, info, warn, error
-format = "json"  # json, pretty
-output = "stdout"  # stdout, stderr, file
+level = "info"
+format = "json"
 
-[monitoring]
-# Monitoring and metrics
+[embedding]
 enabled = true
-metrics_port = 9090
-health_check_path = "/health"
+model = "text-embedding-3-small"
+dimensions = 1536
+batch_size = 10
+cache_enabled = true
+cache_ttl_secs = 86400
+
+[retrieval]
+enabled = true
+top_k = 5
+similarity_threshold = 0.5
+hybrid_enabled = true
+semantic_weight = 0.7
+keyword_weight = 0.3
+
+[compression]
+enabled = true
+target_ratio = 0.5
+max_tokens = 4000
+keep_recent_count = 3
+keep_system_messages = true
+
+[storage]
+db_path = "/var/lib/newclaw/context.db"
+vector_store_type = "memory"
+max_storage_mb = 500
+auto_cleanup = true
+cleanup_interval_secs = 3600
+
+[redis]
+enabled = false
+url = "redis://localhost:6379"
+
+[security]
+rate_limit_enabled = true
+rate_limit_max_requests = 100
+rate_limit_window_secs = 60
