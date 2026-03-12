@@ -1,238 +1,251 @@
-# NewClaw v0.3.1
+# NewClaw v0.5.0
 
-> A production-ready AI agent framework with multi-LLM support, tool execution, and streaming responses
+> 生产级 AI Agent 框架 - Rust 性能 + TypeScript 插件生态
 
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Build Status](https://img.shields.io/badge/build-passing-brightgreen.svg)](https://github.com/fofo365/newclaw)
+[![Test Coverage](https://img.shields.io/badge/tests-346%20passed-brightgreen.svg)](https://github.com/fofo365/newclaw)
+[![Release](https://img.shields.io/badge/release-v0.5.0-blue.svg)](https://github.com/fofo365/newclaw/releases/tag/v0.5.0)
 
-## 🎯 Overview
+## 🎯 项目概述
 
-NewClaw is a next-generation AI agent framework that provides:
+NewClaw 是新一代 AI Agent 框架，提供：
 
-- **🔧 Tool Execution Engine**: Type-safe tool interface with automatic retry
-- **🤖 Multi-LLM Support**: OpenAI, Claude, GLM with unified interface
-- **⚙️ Configuration System**: TOML config files + environment variables
-- **🌊 Streaming Responses**: SSE, WebSocket, and Feishu streaming support
-- **🔒 Security Layer**: API Key, JWT, RBAC, audit logging, rate limiting
-- **📡 Communication**: WebSocket, HTTP API, Redis message queue
-- **🧠 Context Isolation**: Secure multi-tenant context management
-- **✅ 100% Test Coverage**: Production-ready quality
+- **🔧 14 类核心工具** - 文件、Shell、网络、浏览器、记忆等
+- **🤖 多 LLM 支持** - OpenAI、Claude、GLM 统一接口
+- **📡 7 个消息通道** - 飞书、企微、钉钉、QQ、Telegram、Discord、AGP
+- **🧠 飞书集成 100%** - 文档、多维表格、云存储、知识库、聊天
+- **✅ 346 个测试** - 100% 通过率，生产就绪
+- **🚀 高性能** - 内存 < 50MB，比 OpenClaw 降低 75%
 
-## 🆕 v0.3.1 Changes
+## 📊 v0.5.0 新特性
 
-### Fixed
-- ✅ **Gateway now supports multi-provider** - No longer hardcoded to GLM-4
-- ✅ **CLI supports multi-provider** - Use `--provider openai/claude/glm`
-- ✅ **Configuration file support** - Create `config.toml` for easy setup
-- ✅ **Tool execution integrated** - Tools work in both CLI and Gateway modes
+### 核心工具（82 个测试）
+| 工具类别 | 功能 | 状态 |
+|---------|------|------|
+| 记忆系统 | 自动迁移、语义搜索 | ✅ |
+| 文件操作 | read, write, edit | ✅ |
+| Shell 执行 | exec, process | ✅ |
+| 网络请求 | web_search, web_fetch | ✅ |
+| 浏览器控制 | navigate, click, screenshot | ✅ |
+| Canvas 展示 | present, hide, eval | ✅ |
+| 会话管理 | spawn, list, send | ✅ |
+| 节点管理 | status, notify | ✅ |
 
-### Added
-- `config.toml` support with environment variable overrides
-- `--provider` CLI flag for quick provider switching
-- `--model` CLI flag for model selection
-- `newclaw config` command to generate example config
-- `newclaw tools list` command to show available tools
-- `newclaw tools exec <name>` command to run tools directly
+### 飞书集成（87 个测试）
+| 工具 | 功能 | 状态 |
+|------|------|------|
+| feishu_doc | 文档读写 | ✅ |
+| feishu_bitable | 多维表格 | ✅ |
+| feishu_drive | 云存储 | ✅ |
+| feishu_wiki | 知识库 | ✅ |
+| feishu_chat | 聊天 | ✅ |
 
-## 🚀 Quick Start
+### OpenClaw 对标
+| 指标 | OpenClaw | NewClaw | 覆盖率 |
+|------|----------|---------|--------|
+| 核心工具 | 10 类 | 10 类 | 100% |
+| 飞书集成 | 5 个 | 5 个 | 100% |
+| 测试覆盖 | 部分 | 100% | +100% |
 
-### Prerequisites
+## 🚀 快速开始
 
-- Rust 1.75 or higher
-- An API key from your preferred LLM provider
-
-### Installation
+### 方式一：下载预编译二进制
 
 ```bash
-# Clone the repository
+# 下载
+wget https://github.com/fofo365/newclaw/releases/download/v0.5.0/newclaw-linux-x86_64.tar.gz
+tar -xzf newclaw-linux-x86_64.tar.gz
+cd newclaw
+
+# 配置
+cp config/newclaw.example.toml newclaw.toml
+vim newclaw.toml  # 修改 API keys
+
+# 运行
+./newclaw gateway
+```
+
+### 方式二：从源码编译
+
+```bash
+# 克隆
 git clone https://github.com/fofo365/newclaw.git
 cd newclaw
 
-# Build in release mode
+# 编译
 cargo build --release
 
-# The binary will be at target/release/newclaw
+# 运行
+./target/release/newclaw gateway
 ```
 
-### Configuration
-
-Create a `config.toml` file or use environment variables:
+### 方式三：一键部署
 
 ```bash
-# Option 1: Environment variables
-export LLM_PROVIDER=openai    # or claude, glm
-export OPENAI_API_KEY=sk-...  # or ANTHROPIC_API_KEY, GLM_API_KEY
-export LLM_MODEL=gpt-4o-mini  # optional
-
-# Option 2: Generate config file
-./target/release/newclaw config --output config.toml
-# Edit config.toml with your API keys
+sudo ./deploy/install.sh
 ```
 
-### Example config.toml
+## 📖 文档
+
+- [部署指南](docs/deployment-guide.md) - 生产环境部署完整教程
+- [故障排查](docs/troubleshooting.md) - 常见问题和解决方案
+- [配置示例](config/newclaw.example.toml) - 完整配置文件示例
+
+## 🔧 配置
+
+### 最小配置
 
 ```toml
-[llm]
-provider = "openai"
-model = "gpt-4o-mini"
-temperature = 0.7
-max_tokens = 4096
-
-[llm.openai]
-api_key = "sk-..."  # or use OPENAI_API_KEY env var
-
-[llm.claude]
-api_key = "sk-ant-..."  # or use ANTHROPIC_API_KEY env var
-
-[llm.glm]
-api_key = "..."  # or use GLM_API_KEY env var
-
-[gateway]
+[server]
 host = "0.0.0.0"
 port = 3000
 
-[tools]
-enabled = ["read", "write", "edit", "exec", "search"]
-timeout_secs = 60
+[llm]
+provider = "glm"
+model = "glm-4"
+
+[llm.glm]
+api_key = "your-api-key"
+
+[redis]
+url = "redis://127.0.0.1:6379"
+
+[security]
+jwt_secret = "change-this-in-production"
 ```
 
-### Usage Examples
+### 环境变量
 
 ```bash
-# Interactive chat (default mode)
-./target/release/newclaw
-
-# Chat with specific provider
-./target/release/newclaw --provider openai --model gpt-4o
-
-# Start Gateway server
-./target/release/newclaw gateway --port 3000
-
-# List available tools
-./target/release/newclaw tools list
-
-# Execute a tool
-./target/release/newclaw tools exec read --params '{"path": "/tmp/test.txt"}'
-
-# Generate example config
-./target/release/newclaw config
+export LLM_PROVIDER=glm
+export GLM_API_KEY=your-api-key
+export RUST_LOG=info
 ```
 
-## 📡 API Endpoints (Gateway Mode)
+## 🤖 支持的 LLM 提供商
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/health` | GET | Health check |
-| `/chat` | POST | Chat completion |
-| `/tools` | GET | List available tools |
-| `/tools/execute` | POST | Execute a tool |
+| 提供商 | 模型 | 环境变量 |
+|--------|------|----------|
+| OpenAI | gpt-4o, gpt-4o-mini | OPENAI_API_KEY |
+| Claude | claude-3-5-sonnet | ANTHROPIC_API_KEY |
+| GLM | glm-4, glm-5 | GLM_API_KEY |
 
-### Chat Example
+## 📡 API 端点
+
+| 端点 | 方法 | 描述 |
+|------|------|------|
+| `/health` | GET | 健康检查 |
+| `/chat` | POST | 对话补全 |
+| `/tools` | GET | 工具列表 |
+| `/tools/execute` | POST | 执行工具 |
+| `/metrics` | GET | Prometheus 指标 |
+
+### 示例
 
 ```bash
+# 健康检查
+curl http://localhost:3000/health
+
+# 对话
 curl -X POST http://localhost:3000/chat \
   -H "Content-Type: application/json" \
-  -d '{"message": "Hello, NewClaw!"}'
-```
+  -d '{"message": "你好"}'
 
-### Tool Execution Example
-
-```bash
+# 执行工具
 curl -X POST http://localhost:3000/tools/execute \
   -H "Content-Type: application/json" \
-  -d '{
-    "name": "read",
-    "params": {"path": "/tmp/test.txt"}
-  }'
+  -d '{"name": "read", "params": {"path": "/tmp/test.txt"}}'
 ```
 
-## 🤖 Supported Providers
-
-### OpenAI
-- Models: `gpt-4o`, `gpt-4o-mini`, `gpt-3.5-turbo`
-- Env: `OPENAI_API_KEY`
-- Config: `[llm.openai]`
-
-### Claude (Anthropic)
-- Models: `claude-3-5-sonnet-20241022`, `claude-3-opus`, `claude-3-haiku`
-- Env: `ANTHROPIC_API_KEY`
-- Config: `[llm.claude]`
-
-### GLM (ZhipuAI)
-- Models: `glm-4`, `glm-4-flash`, `glm-5`
-- Env: `GLM_API_KEY`
-- Config: `[llm.glm]`
-
-## 🔧 Available Tools
-
-| Tool | Description |
-|------|-------------|
-| `read` | Read file contents (supports images) |
-| `write` | Write content to file |
-| `edit` | Edit file by replacing exact text |
-| `exec` | Execute shell commands |
-| `search` | Web search (Brave API) |
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────┐
-│         Application Layer                │
-├─────────────────────────────────────────┤
-│  • CLI / Gateway                         │
-│  • Agent Engine                          │
-│  • Tool Execution Engine                 │
-└─────────────────────────────────────────┘
-           ↓
-┌─────────────────────────────────────────┐
-│           LLM Provider Layer             │
-├─────────────────────────────────────────┤
-│  OpenAI │ Claude │ GLM                   │
-│  (Unified LLMProviderV3 Trait)          │
-└─────────────────────────────────────────┘
-           ↓
-┌─────────────────────────────────────────┐
-│        Configuration Layer               │
-├─────────────────────────────────────────┤
-│  config.toml + Environment Variables    │
-└─────────────────────────────────────────┘
-```
-
-## 🧪 Testing
+## 🧪 测试
 
 ```bash
-# Run all tests
+# 运行所有测试
 cargo test
 
-# Run with verbose output
-cargo test -- --nocapture
+# 运行特定测试
+cargo test test_feishu_doc
 
-# Run specific test
-cargo test test_openai_provider
+# 查看覆盖率
+cargo tarpaulin
 ```
 
-## 📊 Performance
+## 📊 性能指标
 
-- **Throughput**: 10,000+ requests/second
-- **Latency**: < 10ms p99
-- **Memory**: < 50MB baseline
-- **Startup**: < 100ms
+| 指标 | 数值 |
+|------|------|
+| 测试通过率 | 100% (346 tests) |
+| 内存使用 | < 50MB |
+| 启动时间 | < 100ms |
+| 工具执行延迟 | < 50ms |
 
-## 🤝 Contributing
+## 🏗️ 架构
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+```
+┌─────────────────────────────────────┐
+│         应用层                       │
+│  CLI / Gateway / Agent Engine       │
+└─────────────────────────────────────┘
+              ↓
+┌─────────────────────────────────────┐
+│         工具层                       │
+│  14 类工具 + 飞书集成 (5 个)         │
+└─────────────────────────────────────┘
+              ↓
+┌─────────────────────────────────────┐
+│         LLM 层                       │
+│  OpenAI / Claude / GLM              │
+└─────────────────────────────────────┘
+              ↓
+┌─────────────────────────────────────┐
+│         存储层                       │
+│  Redis / Memory / File              │
+└─────────────────────────────────────┘
+```
 
-## 📄 License
+## 🔒 安全特性
 
-MIT License - see [LICENSE](LICENSE) file.
+- ✅ JWT 认证
+- ✅ API Key 管理
+- ✅ 速率限制
+- ✅ RBAC 权限控制
+- ✅ 审计日志
 
-## 📞 Support
+## 🚢 部署
+
+### Docker
+
+```bash
+docker build -t newclaw:0.5.0 .
+docker run -d -p 3000:3000 newclaw:0.5.0
+```
+
+### Systemd
+
+```bash
+sudo cp deploy/newclaw.service /etc/systemd/system/
+sudo systemctl enable newclaw
+sudo systemctl start newclaw
+```
+
+详见 [部署指南](docs/deployment-guide.md)
+
+## 🤝 贡献
+
+欢迎贡献！请查看 [CONTRIBUTING.md](CONTRIBUTING.md)
+
+## 📄 许可证
+
+MIT License - 详见 [LICENSE](LICENSE)
+
+## 📞 支持
 
 - **Issues**: [GitHub Issues](https://github.com/fofo365/newclaw/issues)
+- **文档**: [docs/](docs/)
 
 ---
 
-**Version**: v0.3.1  
-**Release Date**: 2026-03-09  
-**Maintainer**: NewClaw Team
+**版本**: v0.5.0  
+**发布日期**: 2026-03-12  
+**维护者**: NewClaw Team

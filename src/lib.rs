@@ -52,6 +52,12 @@ pub mod health;
 // v0.5.4 - 指标导出
 pub mod metrics;
 
+// v0.5.4 - 缓存层
+pub mod cache;
+
+// v0.5.4 - 向量数据库
+pub mod vector_db;
+
 // Re-export main types
 pub use core::AgentEngine;
 pub use core::{ContextManager, ContextConfig, ContextChunk};

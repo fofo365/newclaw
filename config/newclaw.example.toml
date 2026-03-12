@@ -1,0 +1,85 @@
+# NewClaw 配置文件示例
+# 复制此文件为 newclaw.toml 并修改配置
+
+[server]
+# Gateway 服务地址
+host = "0.0.0.0"
+port = 3000
+
+# 日志级别: trace, debug, info, warn, error
+log_level = "info"
+
+[llm]
+# 默认 LLM 提供商: openai, claude, glm
+provider = "glm"
+
+# 默认模型
+model = "glm-4"
+
+[llm.openai]
+# OpenAI API Key（必填）
+api_key = "sk-your-openai-api-key-here"
+
+# 可选：自定义 API 基础 URL
+# base_url = "https://api.openai.com/v1"
+
+# 可选：默认模型
+# model = "gpt-4"
+
+[llm.claude]
+# Anthropic API Key（必填）
+api_key = "sk-ant-your-claude-api-key-here"
+
+# 可选：默认模型
+# model = "claude-3-5-sonnet-20241022"
+
+[llm.glm]
+# 智谱 AI API Key（必填）
+api_key = "your-zhipu-api-key-here"
+
+# 可选：默认模型
+# model = "glm-4"
+
+[redis]
+# Redis 连接配置（用于会话管理和缓存）
+url = "redis://127.0.0.1:6379"
+
+# 可选：数据库编号
+# db = 0
+
+# 可选：连接池大小
+# pool_size = 10
+
+[feishu]
+# 飞书 Bot 配置（可选）
+# app_id = "cli_xxx"
+# app_secret = "xxx"
+
+[security]
+# JWT 密钥（必填，建议使用强随机字符串）
+jwt_secret = "your-secret-key-change-this-in-production"
+
+# API Key 认证（可选）
+# api_keys = ["key1", "key2"]
+
+# 速率限制（每分钟请求数）
+rate_limit = 60
+
+[tools]
+# 工具配置
+# 启用的工具列表（空 = 全部启用）
+# enabled = ["memory", "file", "shell", "web"]
+
+# 工具执行超时（秒）
+timeout = 30
+
+[memory]
+# 记忆系统配置
+# 存储类型: memory, redis, file
+storage = "redis"
+
+# 记忆过期时间（秒，0 = 永不过期）
+ttl = 86400
+
+# 最大记忆条数
+max_entries = 10000
