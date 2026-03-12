@@ -1,0 +1,32 @@
+[Unit]
+Description=NewClaw Watchdog - Core Controller
+After=network.target
+Documentation=https://github.com/fofo365/newclaw
+
+[Service]
+Type=simple
+User=newclaw
+Group=newclaw
+WorkingDirectory=/opt/newclaw
+ExecStart=/opt/newclaw/newclaw-watchdog
+Restart=on-failure
+RestartSec=10
+
+# 安全配置
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/newclaw /opt/newclaw
+
+# 资源限制（核心主控保持轻量）
+LimitNOFILE=1024
+MemoryMax=64M
+CPUQuota=10%
+
+# 环境变量
+Environment="RUST_LOG=info"
+Environment="WATCHDOG_CONFIG=/opt/newclaw/watchdog.toml"
+
+[Install]
+WantedBy=multi-user.target

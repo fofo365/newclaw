@@ -1,0 +1,34 @@
+[Unit]
+Description=NewClaw Smart Controller - AI Agent Gateway
+After=network.target redis.service newclaw-watchdog.service
+Requires=redis.service
+Wants=newclaw-watchdog.service
+Documentation=https://github.com/fofo365/newclaw
+
+[Service]
+Type=simple
+User=newclaw
+Group=newclaw
+WorkingDirectory=/opt/newclaw
+ExecStart=/opt/newclaw/newclaw gateway
+Restart=on-failure
+RestartSec=10
+
+# 安全配置
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/newclaw /opt/newclaw
+
+# 资源限制（智慧主控动态扩展）
+LimitNOFILE=65535
+MemoryMax=512M
+CPUQuota=80%
+
+# 环境变量
+Environment="RUST_LOG=info"
+Environment="NEWCLAW_CONFIG=/opt/newclaw/newclaw.toml"
+
+[Install]
+WantedBy=multi-user.target

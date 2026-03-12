@@ -1,0 +1,59 @@
+# NewClaw Watchdog - 核心主控配置示例
+
+[watchdog]
+# 检查间隔（秒）
+check_interval = 5
+
+# 心跳超时（秒）
+heartbeat_timeout = 15
+
+# 最大失败次数
+max_heartbeat_failures = 3
+
+[lease]
+# 租约期限（秒）
+duration = 15
+
+# 续约截止时间（秒）
+renew_deadline = 10
+
+[recovery]
+# 恢复策略
+strategy = "graduated"  # graduated | immediate | conservative
+
+# L1 快速修复配置
+[recovery.l1]
+enabled = true
+max_retries = 3
+backoff_base = 1  # 秒
+
+# L2 AI 诊断配置
+[recovery.l2]
+enabled = true
+llm_provider = "glm"
+llm_model = "glm-4"
+max_tokens = 2000
+
+# L3 人工介入配置
+[recovery.l3]
+enabled = true
+alert_channels = ["feishu", "email"]
+safe_mode_timeout = 300  # 秒
+
+[audit]
+# 审计日志配置
+enabled = true
+log_path = "/var/log/newclaw/watchdog-audit.json"
+max_size_mb = 100
+retention_days = 30
+
+[grpc]
+# gRPC 服务配置
+bind = "127.0.0.1:50051"
+tls_enabled = false
+# tls_cert = "/path/to/cert.pem"
+# tls_key = "/path/to/key.pem"
+
+[logging]
+level = "info"
+format = "json"
