@@ -4,6 +4,7 @@
 // - Token 实时估算
 // - 智能截断优化
 // - 策略引擎
+// - RAG 检索
 //
 // 注意：ContextManager 的主要实现在 src/core/context.rs
 // 这个模块专注于 Token 计数、截断策略和策略引擎
@@ -12,9 +13,21 @@ pub mod token_counter;
 pub mod truncation;
 pub mod strategy;
 
+// v0.5.2 - RAG 检索
+pub mod retrieval;
+
+// v0.5.2 - 上下文压缩
+pub mod compression;
+
 pub use token_counter::{TokenCounter, TokenUsageStats};
 pub use truncation::{TruncationStrategy, TruncationConfig};
 pub use strategy::{StrategyEngine, StrategyType};
+
+// v0.5.2 - RAG 导出
+pub use retrieval::{RetrievalConfig, RetrievalResult, RAGContextBuilder, HybridRetriever, Citation};
+
+// v0.5.2 - 压缩导出
+pub use compression::{CompressionConfig, CompressionResult, ContextCompressor, Summarizer, BasicSummarizer};
 
 // 重新导出核心的 ContextManager
 pub use crate::core::context::{ContextManager, ContextConfig, ContextChunk};

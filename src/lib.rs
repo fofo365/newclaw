@@ -43,6 +43,9 @@ pub mod mcp;
 // v0.5.1 - Router (多层路由架构)
 pub mod router;
 
+// v0.5.2 - Skill (OpenClaw Skill 兼容)
+pub mod skill;
+
 // Re-export main types
 pub use core::AgentEngine;
 pub use core::{ContextManager, ContextConfig, ContextChunk};
