@@ -1,5 +1,11 @@
 // NewClaw - Next-gen AI Agent framework
-// Version: 0.5.0
+// Version: 0.5.4
+
+// Allow some warnings for now (WIP code)
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(unused_imports)]
+#![allow(unused_mut)]
 
 // Core modules
 pub mod core;

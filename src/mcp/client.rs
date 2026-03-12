@@ -186,12 +186,13 @@ impl McpClient {
 #[derive(Debug, serde::Deserialize)]
 pub struct InitializeResult {
     /// 协议版本
-    pub protocolVersion: String,
+    #[serde(rename = "protocolVersion")]
+    pub protocol_version: String,
     /// 服务器能力
     pub capabilities: ServerCapabilities,
     /// 服务器信息（可选）
-    #[serde(default)]
-    pub serverInfo: Option<ServerInfo>,
+    #[serde(default, rename = "serverInfo")]
+    pub server_info: Option<ServerInfo>,
 }
 
 /// 服务器能力

@@ -1,4 +1,4 @@
-// NewClaw CLI - v0.5.0
+// NewClaw CLI - v0.5.4
 //
 // 支持：
 // 1. 多 LLM Provider
@@ -6,8 +6,11 @@
 // 3. Gateway 模式
 // 4. 插件系统
 
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(unused_imports)]
+
 use clap::{Parser, Subcommand};
-use std::net::SocketAddr;
 
 #[derive(Parser)]
 #[command(name = "newclaw")]
@@ -264,7 +267,7 @@ async fn main() -> anyhow::Result<()> {
                     println!();
 
                     // 创建工具注册表并执行
-                    let registry = newclaw::tools::ToolRegistry::new();
+                    let _registry = newclaw::tools::ToolRegistry::new();
                     // register_default_tools(&registry).await;  // TODO: 工具系统待实现
 
                     // TODO: 工具执行功能待实现
