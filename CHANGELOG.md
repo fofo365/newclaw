@@ -24,7 +24,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - (No fixes yet in v0.5.0)
 
-## [0.4.1] - 2026-03-09
+## [0.5.0] - 2026-03-09
+
+## [0.5.5] - 2026-03-12
+
+### Added
+- Dashboard/CLI P0 修复
+- 多 Agent 记忆共享
+- 心跳机制
+- 多模型调度
+- Ollama 本地模型支持
+
+### Fixed
+- 修复 Ollama TokenUsage 类型转换错误（u64 → usize）
+- 清理所有编译警告
+
+### Changed
+- 更新 `src/lib.rs` 导出 embedding 类型
+- 重构上下文管理模块
+
+## [0.5.0] - 2026-03-09
+
+### Added
+- Vector embedding module (v0.5.0 development)
+  - `EmbeddingClient` trait for embedding abstraction
+  - `OpenAIEmbeddingClient` for OpenAI embeddings API
+  - `EmbeddingPipeline` for batch processing
+  - `TextChunker` for intelligent text splitting
+  - `EmbeddingCache` with LRU eviction and TTL
+- Integration tests for embedding module
+- Performance benchmarks for embedding operations
+
+### Fixed
+- (No fixes yet in v0.5.0)
 
 ### Added
 - Feishu WebSocket connection management

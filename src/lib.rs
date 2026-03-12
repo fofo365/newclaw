@@ -1,5 +1,5 @@
 // NewClaw - Next-gen AI Agent framework
-// Version: 0.5.5
+// Version: 0.6.0
 
 // Allow some warnings for now (WIP code)
 #![allow(dead_code)]
@@ -66,6 +66,9 @@ pub mod heartbeat;
 
 // v0.5.5 - 多模型调度
 pub mod dispatcher;
+
+// v0.6.0 - Watchdog 核心主控
+pub mod watchdog;
 
 // Re-export main types
 pub use core::AgentEngine;
