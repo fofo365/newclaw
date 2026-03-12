@@ -237,7 +237,7 @@ impl CacheManager {
     }
     
     /// 设置缓存（同时设置 Redis 和本地）
-    pub async fn set<T: Serialize>(
+    pub async fn set<T: Serialize + for<'de> Deserialize<'de>>(
         &self,
         key: &str,
         value: &T,
@@ -350,8 +350,9 @@ mod tests {
     #[tokio::test]
     async fn test_cache_manager_set_get() {
         let manager = CacheManager::new(None);
+        let value = "value".to_string();
         
-        manager.set("test", &"value", Some(60)).await.unwrap();
+        manager.set("test", &value, Some(60)).await.unwrap();
         
         let result: Option<String> = manager.get("test").await.unwrap();
         assert_eq!(result, Some("value".to_string()));
@@ -360,8 +361,9 @@ mod tests {
     #[tokio::test]
     async fn test_cache_manager_delete() {
         let manager = CacheManager::new(None);
+        let value = "value".to_string();
         
-        manager.set("test", &"value", None).await.unwrap();
+        manager.set("test", &value, None).await.unwrap();
         manager.delete("test").await.unwrap();
         
         let result: Option<String> = manager.get("test").await.unwrap();
