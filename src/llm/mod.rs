@@ -2,6 +2,7 @@
 
 // v0.4.0 - 多 LLM 架构 + GLM 多区域支持
 // v0.5.5 - Ollama 本地模型支持
+// v0.6.0 - 懒加载 Provider（解决启动阻塞问题）
 pub mod provider;
 pub mod openai;
 pub mod claude;
@@ -9,12 +10,14 @@ pub mod glm;
 pub mod ollama;
 pub mod streaming;
 pub mod models;
+pub mod lazy_provider;
 
 // Re-exports
 pub use provider::{LLMProviderV3, ChatRequest, ChatResponse, Message, MessageRole, LLMError, ModelStrategy, LLMConfig, ProviderType, TokenUsage};
 pub use openai::OpenAIProvider;
 pub use claude::ClaudeProvider;
 pub use ollama::{OllamaProvider, OllamaConfig, OllamaModel};
+pub use lazy_provider::LazyLLMProvider;
 pub use streaming::{StreamChunk, StreamingResponse, SSEEvent, stream_llm_response, WebSocketStream, FeishuStreamAdapter};
 
 // GLM 多区域 Provider

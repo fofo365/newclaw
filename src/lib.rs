@@ -1,5 +1,5 @@
 // NewClaw - Next-gen AI Agent framework
-// Version: 0.6.0
+// Version: 0.6.1
 
 // Allow some warnings for now (WIP code)
 #![allow(dead_code)]
@@ -69,6 +69,9 @@ pub mod dispatcher;
 
 // v0.6.0 - Watchdog 核心主控
 pub mod watchdog;
+
+// v0.6.0 - Smart Controller 智慧主控集成
+pub mod smart_controller;
 
 // Re-export main types
 pub use core::AgentEngine;

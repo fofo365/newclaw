@@ -1,13 +1,16 @@
 // 恢复执行器模块
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
 
 use super::audit::{AuditLogger, AuditEvent, EventType};
 use super::ai_analyzer::{AIAnalyzer, DiagnosisRequest, SystemStatus};
 use super::diagnostic::DiagnosticResult;
+use super::notifier::{Notifier, AlertMessage, AlertLevel};
 
 /// 恢复级别
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

@@ -179,7 +179,7 @@ impl GlmProviderConfig {
 }
 
 /// Gateway 配置
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GatewayConfig {
     /// 监听地址
     #[serde(default = "default_host")]
@@ -188,6 +188,29 @@ pub struct GatewayConfig {
     /// 监听端口
     #[serde(default = "default_port")]
     pub port: u16,
+    
+    /// 是否启用 Watchdog 集成
+    #[serde(default)]
+    pub enable_watchdog: bool,
+    
+    /// Watchdog gRPC 地址
+    #[serde(default = "default_watchdog_addr")]
+    pub watchdog_addr: String,
+}
+
+impl Default for GatewayConfig {
+    fn default() -> Self {
+        Self {
+            host: default_host(),
+            port: default_port(),
+            enable_watchdog: false,
+            watchdog_addr: default_watchdog_addr(),
+        }
+    }
+}
+
+fn default_watchdog_addr() -> String {
+    "http://127.0.0.1:50051".to_string()
 }
 
 fn default_host() -> String {
@@ -494,6 +517,8 @@ pub fn generate_example_config() -> String {
         gateway: GatewayConfig {
             host: "0.0.0.0".to_string(),
             port: 3000,
+            enable_watchdog: false,
+            watchdog_addr: "http://127.0.0.1:50051".to_string(),
         },
         tools: ToolsConfig {
             enabled: vec![

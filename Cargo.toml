@@ -1,6 +1,6 @@
 [package]
 name = "newclaw"
-version = "0.6.0"
+version = "0.6.1"
 edition = "2021"
 description = "Next-gen AI Agent framework - Rust performance + TypeScript plugins"
 license = "MIT"
@@ -127,6 +127,10 @@ tonic-build = "0.12"
 [[bin]]
 name = "migrate"
 path = "src/bin/migrate.rs"
+
+[[bin]]
+name = "watchdog"
+path = "src/bin/watchdog.rs"
 
 [features]
 default = []
