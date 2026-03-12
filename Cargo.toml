@@ -1,6 +1,6 @@
 [package]
 name = "newclaw"
-version = "0.5.4"
+version = "0.5.5"
 edition = "2021"
 description = "Next-gen AI Agent framework - Rust performance + TypeScript plugins"
 license = "MIT"
@@ -98,6 +98,9 @@ clap = { version = "4.5", features = ["derive"] }
 # Config
 toml = "0.8"
 shellexpand = "3.1"
+
+# System info (v0.5.5 - resource monitoring)
+sysinfo = "0.33"
 
 # Testing
 tempfile = "3.14"

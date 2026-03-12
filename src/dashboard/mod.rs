@@ -379,6 +379,9 @@ pub fn create_dashboard_router(state: Arc<DashboardState>) -> Router {
         .route("/api/admin/apikeys", post(admin::create_api_key))
         .route("/api/admin/apikeys/{id}", delete(admin::revoke_api_key))
 
+        // Prometheus 指标端点 (v0.5.5) - 无需认证
+        .route("/metrics", get(prometheus_metrics))
+
         // 静态文件服务（前端）
         // 默认重定向到登录页
         .route("/", get(redirect_to_login))
@@ -387,10 +390,32 @@ pub fn create_dashboard_router(state: Arc<DashboardState>) -> Router {
         .with_state(state)
 }
 
+/// Prometheus /metrics 端点
+pub async fn prometheus_metrics() -> impl axum::response::IntoResponse {
+    use crate::metrics::prometheus::{export_metrics, init_metrics};
+    
+    // 确保已初始化（幂等操作）
+    init_metrics();
+    
+    match export_metrics() {
+        Ok(body) => (
+            [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
+            body,
+        ),
+        Err(e) => (
+            [(axum::http::header::CONTENT_TYPE, "text/plain")],
+            format!("Error exporting metrics: {}", e).into_bytes(),
+        ),
+    }
+}
+
 /// 启动 Dashboard 服务器
 pub async fn start_dashboard(config: DashboardConfig) -> anyhow::Result<()> {
     use axum::serve;
     use tokio::net::TcpListener;
+    
+    // 初始化 Prometheus 指标
+    crate::metrics::prometheus::init_metrics();
 
     let state = Arc::new(DashboardState::new(config.clone()));
     let app = create_dashboard_router(state);
