@@ -16,35 +16,49 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::config::Config;
-use crate::llm::{LLMProviderV3, LazyLLMProvider};
+use crate::llm::{LLMProviderV3, create_glm_provider};
 use crate::smart_controller::{SmartController, SmartControllerConfig};
+
+/// 安全创建 GLM Provider（不抛出错误）
+fn create_glm_provider_safe(api_key: String, model: &str) -> anyhow::Result<Box<dyn LLMProviderV3>> {
+    let provider = create_glm_provider(api_key, model);
+    Ok(Box::new(provider))
+}
 
 /// Gateway 状态
 pub struct GatewayState {
     pub config: Config,
-    pub llm_provider: Arc<LazyLLMProvider>,
+    pub llm_provider: Option<Arc<Box<dyn LLMProviderV3>>>,  // 可选，不影响启动
     pub smart_controller: Option<Arc<SmartController>>,
 }
 
 impl GatewayState {
     pub async fn from_config(config: Config) -> anyhow::Result<Self> {
-        // 使用懒加载 Provider，允许无 API Key 启动
-        let lazy_provider = LazyLLMProvider::new(config.clone());
-        
-        // 检查是否已配置 API Key，给出友好提示
-        if lazy_provider.is_configured() {
-            tracing::info!(
-                "✅ LLM Provider configured: {} (model: {})",
-                lazy_provider.provider_name(),
-                lazy_provider.model_name()
-            );
-        } else {
-            tracing::warn!(
-                "⚠️  LLM Provider not configured. Please set {}_API_KEY environment variable.",
-                config.llm.provider.to_uppercase()
-            );
-            tracing::warn!("   The service will start but chat requests will fail until API Key is configured.");
-        }
+        // 尝试创建 LLM Provider，失败也不影响服务启动
+        let llm_provider = match config.get_api_key() {
+            Ok(api_key) => {
+                let model_name = config.get_model();
+                match create_glm_provider_safe(api_key, &model_name) {
+                    Ok(provider) => {
+                        tracing::info!(
+                            "✅ LLM Provider initialized: {} (model: {})",
+                            config.llm.provider,
+                            model_name
+                        );
+                        Some(Arc::new(provider))
+                    }
+                    Err(e) => {
+                        tracing::warn!("⚠️  Failed to initialize LLM Provider: {}", e);
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("⚠️  LLM Provider not configured: {}", e);
+                tracing::warn!("   Chat API will return error until API Key is configured.");
+                None
+            }
+        };
         
         // 创建智慧主控（如果启用）
         let smart_controller = if config.gateway.enable_watchdog {
@@ -60,7 +74,7 @@ impl GatewayState {
         
         Ok(Self {
             config,
-            llm_provider: Arc::new(lazy_provider),
+            llm_provider,
             smart_controller,
         })
     }
@@ -124,8 +138,8 @@ async fn readiness_check(
 ) -> Result<Json<ReadinessResponse>, StatusCode> {
     let mut checks = std::collections::HashMap::new();
     
-    // 检查 LLM Provider
-    checks.insert("llm_provider".to_string(), true);
+    // 检查 LLM Provider（服务可以启动，但 LLM 可能未配置）
+    checks.insert("llm_provider".to_string(), state.llm_provider.is_some());
     
     // 检查智慧主控
     if let Some(ref sc) = state.smart_controller {
@@ -135,7 +149,8 @@ async fn readiness_check(
         checks.insert("lease".to_string(), sc.lease_id().await.is_some());
     }
     
-    let ready = checks.values().all(|&v| v);
+    // 注意：即使 LLM 未配置，服务也是"就绪"的（可以启动和响应其他端点）
+    let ready = true;
     
     Ok(Json(ReadinessResponse {
         ready,
@@ -143,8 +158,18 @@ async fn readiness_check(
     }))
 }
 
-async fn chat() -> &'static str {
-    "Chat endpoint will be implemented soon"
+async fn chat(
+    State(state): State<Arc<GatewayState>>,
+) -> Result<&'static str, (StatusCode, &'static str)> {
+    // 检查 LLM Provider 是否配置
+    if state.llm_provider.is_none() {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "LLM Provider not configured. Please set GLM_API_KEY environment variable or configure in newclaw.toml"
+        ));
+    }
+    
+    Ok("Chat endpoint will be implemented soon")
 }
 
 #[derive(Debug, Serialize)]
