@@ -1,4 +1,4 @@
-// NewClaw CLI - v0.4.0-beta.1
+// NewClaw CLI - v0.5.0
 //
 // 支持：
 // 1. 多 LLM Provider
@@ -11,7 +11,7 @@ use std::net::SocketAddr;
 
 #[derive(Parser)]
 #[command(name = "newclaw")]
-#[command(version = "0.4.1")]
+#[command(version = "0.5.0")]
 #[command(about = "Next-gen AI Agent framework - Rust performance + TypeScript plugins", long_about = None)]
 struct Cli {
     #[command(subcommand)]
