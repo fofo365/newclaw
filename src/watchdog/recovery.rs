@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::audit::{AuditLogger, AuditEvent, EventType};
+use super::ai_analyzer::{AIAnalyzer, DiagnosisRequest, SystemStatus};
 use super::diagnostic::DiagnosticResult;
 
 /// 恢复级别
@@ -204,11 +205,33 @@ impl RecoveryResult {
 /// 恢复执行器
 pub struct RecoveryExecutor {
     audit_log: AuditLogger,
+    /// 可选的 AI 分析器（用于 L2 诊断）
+    ai_analyzer: Option<AIAnalyzer>,
+    /// 最近收集的日志（用于 AI 分析）
+    recent_logs: Vec<String>,
 }
 
 impl RecoveryExecutor {
     pub fn new(audit_log: AuditLogger) -> Self {
-        Self { audit_log }
+        Self {
+            audit_log,
+            ai_analyzer: None,
+            recent_logs: vec![],
+        }
+    }
+    
+    /// 创建带 AI 分析器的执行器
+    pub fn with_ai_analyzer(audit_log: AuditLogger, ai_analyzer: AIAnalyzer) -> Self {
+        Self {
+            audit_log,
+            ai_analyzer: Some(ai_analyzer),
+            recent_logs: vec![],
+        }
+    }
+    
+    /// 设置最近日志
+    pub fn set_recent_logs(&mut self, logs: Vec<String>) {
+        self.recent_logs = logs;
     }
     
     /// 执行恢复计划
@@ -306,15 +329,60 @@ impl RecoveryExecutor {
     
     /// L2 动作：AI 诊断
     async fn ai_diagnosis(&self) -> anyhow::Result<String> {
-        // TODO: 调用 LLM 分析日志，生成修复建议
-        // 当前返回模拟结果
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        // 记录诊断开始
         self.audit_log.log(AuditEvent::new(
             EventType::AiDiagnosisStarted,
             "watchdog".to_string(),
             "AI diagnosis started".to_string(),
         ))?;
-        Ok("AI diagnosis completed: suggested action is restart_service".to_string())
+        
+        // 如果有 AI 分析器，使用它进行诊断
+        if let Some(ref analyzer) = self.ai_analyzer {
+            let request = DiagnosisRequest {
+                logs: self.recent_logs.clone(),
+                system_status: SystemStatus {
+                    memory_usage_mb: 0,
+                    cpu_percent: 0.0,
+                    active_sessions: 0,
+                    uptime_seconds: 0,
+                },
+                recovery_history: vec![],
+            };
+            
+            match analyzer.analyze(request).await {
+                Ok(response) => {
+                    // 记录诊断完成
+                    self.audit_log.log(AuditEvent::new(
+                        EventType::AiDiagnosisCompleted,
+                        "watchdog".to_string(),
+                        format!("Root cause: {}, confidence: {:.2}", 
+                            response.root_cause, response.confidence),
+                    ))?;
+                    
+                    // 格式化返回结果
+                    let actions_str = response.suggested_actions
+                        .iter()
+                        .map(|a| format!("{} (优先级: {})", a.action, a.priority))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    
+                    return Ok(format!(
+                        "AI诊断完成: {} | 建议动作: {} | 置信度: {:.0}%",
+                        response.root_cause,
+                        actions_str,
+                        response.confidence * 100.0
+                    ));
+                }
+                Err(e) => {
+                    tracing::warn!("AI diagnosis failed: {}", e);
+                    return Ok(format!("AI诊断失败: {}，使用默认建议: restart_service", e));
+                }
+            }
+        }
+        
+        // 没有 AI 分析器时，返回模拟结果
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        Ok("AI diagnosis completed (mock): suggested action is restart_service".to_string())
     }
     
     /// L3 动作：通知人工

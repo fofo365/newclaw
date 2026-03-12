@@ -10,6 +10,7 @@ pub mod diagnostic;
 pub mod recovery;
 pub mod audit;
 pub mod config;
+pub mod ai_analyzer;
 
 pub use controller::CoreController;
 pub use lease::{LeaseManager, Lease, LeaseStorage};
