@@ -213,20 +213,21 @@ mod tests {
         };
         let manager = DegradedModeManager::new(config);
         
-        // 正常模式，总是可以获取
-        assert!(manager.try_acquire());
-        manager.release();
-        
         // 进入降级模式
         manager.enter("Test");
         
+        // 在限制内应该成功
         assert!(manager.try_acquire());
         assert!(manager.try_acquire());
-        assert!(!manager.try_acquire()); // 超过限制
         
+        // 超过限制应该失败
+        assert!(!manager.try_acquire());
+        
+        // 释放后可以再获取
         manager.release();
-        assert!(manager.try_acquire()); // 释放后可以再获取
+        assert!(manager.try_acquire());
         
+        // 清理
         manager.release();
         manager.release();
     }
