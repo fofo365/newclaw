@@ -10,11 +10,14 @@ pub mod router;
 pub mod manager;
 pub mod connector;
 pub mod policy;
+pub mod isolation;
+pub mod sandbox;
 
 pub use router::{Router, RouterId, RouterLevel, RouterCapabilities};
 pub use manager::RouterManager;
 pub use connector::{RouterConnector, RouterMessage, Action};
 pub use policy::{PolicyEngine, Policy, PolicyDecision};
+pub use isolation::{IsolationManager, IsolationBoundary, IsolationLevel, IsolationConfig, ResourceQuota};
 
 use serde::{Deserialize, Serialize};
 
