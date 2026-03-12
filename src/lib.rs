@@ -1,5 +1,5 @@
 // NewClaw - Next-gen AI Agent framework
-// Version: 0.5.4
+// Version: 0.5.5
 
 // Allow some warnings for now (WIP code)
 #![allow(dead_code)]
@@ -24,12 +24,6 @@ pub mod communication;
 
 // v0.3.0 - Tool execution engine
 pub mod tools;
-// TODO: 重新导出工具类型（暂时注释掉）
-// pub use tools::{
-//     Tool, ToolMetadata, ToolCall, ToolResult as CoreToolResult, ToolContent, ToolContext,
-//     ToolRegistry, ToolExecutor, PermissionManager,
-//     NewClawError,
-// };
 
 // v0.4.0 - Feishu WebSocket connection management
 pub mod feishu_websocket;
@@ -63,6 +57,15 @@ pub mod cache;
 
 // v0.5.4 - 向量数据库
 pub mod vector_db;
+
+// v0.5.5 - 多 Agent 记忆共享
+pub mod memory;
+
+// v0.5.5 - 心跳机制
+pub mod heartbeat;
+
+// v0.5.5 - 多模型调度
+pub mod dispatcher;
 
 // Re-export main types
 pub use core::AgentEngine;
