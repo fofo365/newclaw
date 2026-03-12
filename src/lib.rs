@@ -40,6 +40,9 @@ pub mod embedding;
 // v0.5.0 - MCP (Model Context Protocol)
 pub mod mcp;
 
+// v0.5.1 - Router (多层路由架构)
+pub mod router;
+
 // Re-export main types
 pub use core::AgentEngine;
 pub use core::{ContextManager, ContextConfig, ContextChunk};

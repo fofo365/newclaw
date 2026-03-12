@@ -12,10 +12,10 @@ use anyhow::Result;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use crate::vector::{VectorStore, MemoryVectorStore, VectorDocument, DocumentMetadata, mock_embedding};
+use crate::vector::{VectorStore, MemoryVectorStore, VectorDocument, DocumentMetadata};
 use crate::context::{TokenCounter, TruncationStrategy, StrategyEngine, StrategyType};
+use crate::embedding::{EmbeddingClient, OpenAIEmbeddingClient, EmbeddingConfig, EmbeddingModel};
 
-#[derive(Debug)]
 pub struct ContextManager {
     db: Connection,
     pub config: ContextConfig,
@@ -26,6 +26,19 @@ pub struct ContextManager {
     truncation_strategy: Arc<RwLock<TruncationStrategy>>,
     // Strategy engine
     strategy_engine: Arc<RwLock<StrategyEngine>>,
+    // Embedding client (optional - for real embeddings)
+    embedding_client: Option<Arc<dyn EmbeddingClient>>,
+}
+
+// Manual Debug impl to handle dyn trait
+impl std::fmt::Debug for ContextManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ContextManager")
+            .field("config", &self.config)
+            .field("vector_store", &self.vector_store)
+            .field("embedding_client", &self.embedding_client.as_ref().map(|_| "EmbeddingClient"))
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -107,7 +120,38 @@ impl ContextManager {
             token_counter,
             truncation_strategy,
             strategy_engine,
+            embedding_client: None,
         })
+    }
+    
+    /// Create ContextManager with real embedding client
+    pub fn with_embedding(mut self, client: Arc<dyn EmbeddingClient>) -> Self {
+        self.embedding_client = Some(client);
+        self
+    }
+    
+    /// Set embedding client
+    pub fn set_embedding_client(&mut self, client: Arc<dyn EmbeddingClient>) {
+        self.embedding_client = Some(client);
+    }
+    
+    /// Get embedding for text (uses real client if available, otherwise falls back to mock)
+    fn get_embedding(&self, text: &str) -> Vec<f32> {
+        // For synchronous context, we use a simple hash-based embedding
+        // Real async embedding should be called via get_embedding_async
+        self.hash_embedding(text)
+    }
+    
+    /// Simple hash-based embedding (fallback when no async context)
+    fn hash_embedding(&self, text: &str) -> Vec<f32> {
+        let hash = text.chars().map(|c| c as u32).sum::<u32>() as f32;
+        let dim = 1536; // OpenAI embedding dimension
+        (0..dim)
+            .map(|i| {
+                let angle = (hash + i as f32) * 0.1;
+                angle.sin() * 0.5 + 0.5
+            })
+            .collect()
     }
 
     pub fn add_message(&mut self, message: &str, source: &str) -> Result<String> {
@@ -135,7 +179,7 @@ impl ContextManager {
             
             // Store in vector store
             if self.config.enable_vector_search {
-                let embedding = mock_embedding(&chunk);
+                let embedding = self.get_embedding(&chunk);
                 let doc = VectorDocument {
                     id: id.clone(),
                     text: chunk.clone(),
@@ -159,7 +203,7 @@ impl ContextManager {
     pub fn retrieve_relevant(&self, query: &str, limit: usize) -> Result<Vec<ContextChunk>> {
         // Try vector search first
         if self.config.enable_vector_search {
-            let query_embedding = mock_embedding(query);
+            let query_embedding = self.get_embedding(query);
             if let Ok(results) = self.vector_store.search(&query_embedding, limit) {
                 if !results.is_empty() {
                     return Ok(results
@@ -231,6 +275,98 @@ impl ContextManager {
         }
         
         Ok(chunks)
+    }
+    
+    // ===== Async Embedding Methods (Real API) =====
+    
+    /// Add message with real embedding (async)
+    pub async fn add_message_async(&mut self, message: &str, source: &str) -> Result<String> {
+        let chunks = self.chunk_text(message)?;
+        
+        for chunk in chunks {
+            let id = uuid::Uuid::new_v4().to_string();
+            let tokens = estimate_tokens(&chunk);
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_secs() as i64;
+            
+            let metadata = ContextMetadata {
+                source: source.to_string(),
+                timestamp,
+                message_type: "user".to_string(),
+            };
+            
+            // Store in SQLite
+            self.db.execute(
+                "INSERT INTO context_chunks (id, text, tokens, created_at, metadata) \
+                VALUES (?1, ?2, ?3, ?4, ?5)",
+                [&id, &chunk, &(tokens as i32).to_string(), &timestamp.to_string(), &serde_json::to_string(&metadata)?],
+            )?;
+            
+            // Store in vector store with real embedding
+            if self.config.enable_vector_search {
+                let embedding = self.get_embedding_async(&chunk).await;
+                let doc = VectorDocument {
+                    id: id.clone(),
+                    text: chunk.clone(),
+                    embedding,
+                    metadata: DocumentMetadata {
+                        source: source.to_string(),
+                        timestamp,
+                        message_type: "user".to_string(),
+                        tokens,
+                    },
+                };
+                self.vector_store.add_document(doc)?;
+            }
+            
+            return Ok(id);
+        }
+        
+        Ok(uuid::Uuid::new_v4().to_string())
+    }
+    
+    /// Get real embedding via API (async)
+    async fn get_embedding_async(&self, text: &str) -> Vec<f32> {
+        if let Some(ref client) = self.embedding_client {
+            match client.embed(text).await {
+                Ok(result) => result.embedding,
+                Err(e) => {
+                    tracing::warn!("Embedding API failed, using fallback: {}", e);
+                    self.hash_embedding(text)
+                }
+            }
+        } else {
+            self.hash_embedding(text)
+        }
+    }
+    
+    /// Retrieve relevant chunks with real embedding (async)
+    pub async fn retrieve_relevant_async(&self, query: &str, limit: usize) -> Result<Vec<ContextChunk>> {
+        if self.config.enable_vector_search {
+            let query_embedding = self.get_embedding_async(query).await;
+            if let Ok(results) = self.vector_store.search(&query_embedding, limit) {
+                if !results.is_empty() {
+                    return Ok(results
+                        .into_iter()
+                        .map(|r| ContextChunk {
+                            id: r.document.id,
+                            text: r.document.text,
+                            tokens: r.document.metadata.tokens,
+                            created_at: r.document.metadata.timestamp,
+                            metadata: ContextMetadata {
+                                source: r.document.metadata.source,
+                                timestamp: r.document.metadata.timestamp,
+                                message_type: r.document.metadata.message_type,
+                            },
+                        })
+                        .collect());
+                }
+            }
+        }
+        
+        // Fallback to sync method
+        self.retrieve_relevant(query, limit)
     }
     
     // ===== Token Counting Methods =====

@@ -7,11 +7,19 @@ pub mod rbac;
 pub mod audit;
 pub mod rate_limit;
 
+// v0.5.1 - Security enhancements
+pub mod ssrf;
+pub mod injection;
+
 pub use api_key::ApiKeyAuth;
 pub use jwt::JwtAuth;
 pub use rbac::{Permission, RbacManager, Role};
 pub use audit::{AuditEntry, AuditLogger, AuditStorage, AuditResult};
 pub use rate_limit::RateLimiter;
+
+// v0.5.1 - SSRF and Injection protection
+pub use ssrf::{SsrfGuard, SsrfConfig};
+pub use injection::{PromptInjectionDetector, Threat, ThreatType};
 
 use serde::{Deserialize, Serialize};
 

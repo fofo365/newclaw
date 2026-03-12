@@ -1,6 +1,6 @@
 [package]
 name = "newclaw"
-version = "0.4.1"
+version = "0.5.1"
 edition = "2021"
 description = "Next-gen AI Agent framework - Rust performance + TypeScript plugins"
 license = "MIT"
@@ -42,6 +42,7 @@ reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
 
 # URL encoding
 urlencoding = "2.1"
+url = "2.5"
 
 # Crypto for WeCom
 aes = "0.8"
