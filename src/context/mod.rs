@@ -19,6 +19,15 @@ pub mod retrieval;
 // v0.5.2 - 上下文压缩
 pub mod compression;
 
+// v0.5.3 - 策略管理
+pub mod policy;
+
+// v0.5.3 - 透明管理
+pub mod transparency;
+
+// v0.5.3 - 配置管理
+pub mod config;
+
 pub use token_counter::{TokenCounter, TokenUsageStats};
 pub use truncation::{TruncationStrategy, TruncationConfig};
 pub use strategy::{StrategyEngine, StrategyType};
