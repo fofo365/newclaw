@@ -4,10 +4,13 @@
 // + 约束保护系统 (v0.7.0)
 // + 统一存储抽象 (v0.7.0)
 // + FTS5 全文索引 (v0.7.0)
+// + MMR 去重 (v0.7.0)
+// + 文件级记忆持久化 (v0.7.0)
 
 pub mod shared;
 pub mod constraint;
 pub mod storage;
+pub mod file_memory;
 
 pub use shared::{
     UserId, MemoryEntry, MemoryType, UserMemory, 
@@ -23,4 +26,9 @@ pub use constraint::{
 pub use storage::{
     MemoryStorage, StorageStats, StorageConfig,
     SQLiteMemoryStorage, HybridSearchConfig, HybridSearchResult,
+    MMRConfig, mmr_diversify,
+};
+
+pub use file_memory::{
+    FileMemoryManager, MemoryFile, MemorySection, Decision,
 };

@@ -407,6 +407,115 @@ impl MemoryStorage for SQLiteMemoryStorage {
     }
 }
 
+// ============================================================================
+// MMR (Maximal Marginal Relevance) 去重
+// ============================================================================
+
+/// MMR 去重配置
+#[derive(Debug, Clone)]
+pub struct MMRConfig {
+    /// λ 参数：相关性 vs 多样性权衡
+    /// 1.0 = 仅相关性，0.0 = 仅多样性
+    pub lambda: f32,
+    /// 相似度阈值：超过此值认为过于相似
+    pub similarity_threshold: f32,
+    /// 最大结果数
+    pub max_results: usize,
+}
+
+impl Default for MMRConfig {
+    fn default() -> Self {
+        Self {
+            lambda: 0.5,
+            similarity_threshold: 0.8,
+            max_results: 10,
+        }
+    }
+}
+
+/// 使用 MMR 算法去重搜索结果
+pub fn mmr_diversify(
+    results: Vec<HybridSearchResult>,
+    config: &MMRConfig,
+) -> Vec<HybridSearchResult> {
+    if results.len() <= 1 {
+        return results;
+    }
+    
+    let mut selected: Vec<HybridSearchResult> = Vec::new();
+    let mut remaining = results;
+    
+    // 按分数排序
+    remaining.sort_by(|a, b| {
+        b.final_score.partial_cmp(&a.final_score).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    
+    while !remaining.is_empty() && selected.len() < config.max_results {
+        if selected.is_empty() {
+            selected.push(remaining.remove(0));
+            continue;
+        }
+        
+        // 计算每个候选的 MMR 分数
+        let best_idx = remaining.iter()
+            .enumerate()
+            .map(|(i, candidate)| {
+                // 计算与已选结果的最大相似度
+                let max_sim = selected.iter()
+                    .map(|s| compute_content_similarity(&candidate.content, &s.content))
+                    .fold(0.0f32, |a, b| a.max(b));
+                
+                // MMR = λ * 相关性 - (1-λ) * 最大相似度
+                let mmr = config.lambda * candidate.final_score - (1.0 - config.lambda) * max_sim;
+                (i, mmr, max_sim)
+            })
+            .max_by(|(_, a, _), (_, b, _)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(i, _, sim)| (i, sim));
+        
+        if let Some((idx, max_sim)) = best_idx {
+            // 如果相似度超过阈值，跳过
+            if max_sim < config.similarity_threshold {
+                selected.push(remaining.remove(idx));
+            } else {
+                // 移除过于相似的结果
+                remaining.remove(idx);
+            }
+        } else {
+            break;
+        }
+    }
+    
+    selected
+}
+
+/// 计算内容相似度（基于词重叠的 Jaccard 相似度）
+fn compute_content_similarity(a: &str, b: &str) -> f32 {
+    use std::collections::HashSet;
+    
+    let words_a: HashSet<String> = a.split_whitespace()
+        .map(|w| w.to_lowercase().trim_matches(|c: char| !c.is_alphanumeric()).to_string())
+        .filter(|w| !w.is_empty() && w.len() > 1)
+        .collect();
+    
+    let words_b: HashSet<String> = b.split_whitespace()
+        .map(|w| w.to_lowercase().trim_matches(|c: char| !c.is_alphanumeric()).to_string())
+        .filter(|w| !w.is_empty() && w.len() > 1)
+        .collect();
+    
+    if words_a.is_empty() || words_b.is_empty() {
+        return 0.0;
+    }
+    
+    let intersection = words_a.intersection(&words_b).count();
+    let union = words_a.union(&words_b).count();
+    
+    if union == 0 {
+        0.0
+    } else {
+        intersection as f32 / union as f32
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -454,5 +563,70 @@ mod tests {
         let config = HybridSearchConfig::default();
         assert_eq!(config.top_k, 10);
         assert_eq!(config.bm25_weight, 0.7);
+    }
+    
+    #[test]
+    fn test_mmr_diversify() {
+        let results = vec![
+            HybridSearchResult {
+                id: "1".to_string(),
+                content: "Rust is a systems programming language".to_string(),
+                bm25_score: 1.0,
+                vector_score: 0.9,
+                final_score: 0.95,
+                importance: 0.8,
+                created_at: "2026-03-13".to_string(),
+            },
+            HybridSearchResult {
+                id: "2".to_string(),
+                content: "Rust is a systems programming language".to_string(), // 完全相同
+                bm25_score: 0.9,
+                vector_score: 0.85,
+                final_score: 0.88,
+                importance: 0.7,
+                created_at: "2026-03-13".to_string(),
+            },
+            HybridSearchResult {
+                id: "3".to_string(),
+                content: "Python is used for data science".to_string(), // 完全不同
+                bm25_score: 0.8,
+                vector_score: 0.8,
+                final_score: 0.8,
+                importance: 0.6,
+                created_at: "2026-03-13".to_string(),
+            },
+        ];
+        
+        let config = MMRConfig::default();
+        let deduped = mmr_diversify(results, &config);
+        
+        // 相同内容的结果应该被去重
+        assert!(deduped.len() < 3);
+        // 应该保留多样化的结果
+        assert!(deduped.iter().any(|r| r.content.contains("Python")));
+    }
+    
+    #[test]
+    fn test_compute_content_similarity() {
+        // 高相似度
+        let sim = compute_content_similarity(
+            "Rust is a systems programming language",
+            "Rust is a programming language for systems"
+        );
+        assert!(sim > 0.5);
+        
+        // 低相似度
+        let sim2 = compute_content_similarity(
+            "Rust programming language",
+            "Python data science machine learning"
+        );
+        assert!(sim2 < 0.3);
+        
+        // 完全相同
+        let sim3 = compute_content_similarity(
+            "The quick brown fox",
+            "The quick brown fox"
+        );
+        assert!((sim3 - 1.0).abs() < 0.01);
     }
 }
