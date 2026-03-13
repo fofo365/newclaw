@@ -1,6 +1,7 @@
-// Context Manager Module - v0.5.0
+// Context Manager Module - v0.7.0
 //
 // 智能上下文管理系统：
+// - Layer 0: Ephemeral Context (瞬时层) - v0.7.0 新增
 // - Token 实时估算
 // - 智能截断优化
 // - 策略引擎
@@ -8,6 +9,9 @@
 //
 // 注意：ContextManager 的主要实现在 src/core/context.rs
 // 这个模块专注于 Token 计数、截断策略和策略引擎
+
+// Layer 0: Ephemeral Context (瞬时层) - v0.7.0
+pub mod ephemeral;
 
 pub mod token_counter;
 pub mod truncation;
@@ -27,6 +31,9 @@ pub mod transparency;
 
 // v0.5.3 - 配置管理
 pub mod config;
+
+// Layer 0: Ephemeral Context 导出 - v0.7.0
+pub use ephemeral::{EphemeralContext, TokenBudget, AdaptiveAllocator, EphemeralStats};
 
 pub use token_counter::{TokenCounter, TokenUsageStats};
 pub use truncation::{TruncationStrategy, TruncationConfig};
