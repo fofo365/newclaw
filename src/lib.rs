@@ -73,6 +73,9 @@ pub mod watchdog;
 // v0.6.0 - Smart Controller 智慧主控集成
 pub mod smart_controller;
 
+// v0.7.0 - Task System (任务流原生架构)
+pub mod task;
+
 // Re-export main types
 pub use core::AgentEngine;
 pub use core::{ContextManager, ContextConfig, ContextChunk};
