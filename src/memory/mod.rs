@@ -6,11 +6,13 @@
 // + FTS5 全文索引 (v0.7.0)
 // + MMR 去重 (v0.7.0)
 // + 文件级记忆持久化 (v0.7.0)
+// + 分层摘要机制 (v0.7.0)
 
 pub mod shared;
 pub mod constraint;
 pub mod storage;
 pub mod file_memory;
+pub mod summary;
 
 pub use shared::{
     UserId, MemoryEntry, MemoryType, UserMemory, 
@@ -31,4 +33,9 @@ pub use storage::{
 
 pub use file_memory::{
     FileMemoryManager, MemoryFile, MemorySection, Decision,
+};
+
+pub use summary::{
+    SummaryTree, SummaryNode, SummaryConfig, SummaryStats,
+    HierarchicalSummaryManager, SummaryMessage, SummaryAction,
 };
