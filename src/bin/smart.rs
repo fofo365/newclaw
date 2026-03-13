@@ -5,7 +5,6 @@
 // 功能: Agent 引擎、工具执行、消息处理
 
 use clap::Parser;
-use std::sync::Arc;
 
 #[derive(Parser)]
 #[command(name = "newclaw-smart")]

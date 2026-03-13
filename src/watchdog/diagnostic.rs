@@ -181,7 +181,8 @@ impl DiagnosticEngine {
         vec![
             KnownPattern {
                 name: "OOM".to_string(),
-                pattern: Regex::new(r"(?i)(out of memory|oom|memory.*exhausted)").unwrap(),
+                pattern: Regex::new(r"(?i)(out of memory|oom|memory.*exhausted)")
+                    .expect("Invalid OOM regex pattern"),
                 cause_type: CauseType::MemoryExhaustion,
                 severity: Severity::High,
                 suggestions: vec![
@@ -192,7 +193,8 @@ impl DiagnosticEngine {
             },
             KnownPattern {
                 name: "Deadlock".to_string(),
-                pattern: Regex::new(r"(?i)(deadlock|lock.*timeout|blocked)").unwrap(),
+                pattern: Regex::new(r"(?i)(deadlock|lock.*timeout|blocked)")
+                    .expect("Invalid Deadlock regex pattern"),
                 cause_type: CauseType::Deadlock,
                 severity: Severity::High,
                 suggestions: vec![
@@ -202,7 +204,8 @@ impl DiagnosticEngine {
             },
             KnownPattern {
                 name: "NetworkError".to_string(),
-                pattern: Regex::new(r"(?i)(connection.*refused|timeout|network.*unreachable)").unwrap(),
+                pattern: Regex::new(r"(?i)(connection.*refused|timeout|network.*unreachable)")
+                    .expect("Invalid NetworkError regex pattern"),
                 cause_type: CauseType::NetworkIssue,
                 severity: Severity::Medium,
                 suggestions: vec![
@@ -212,7 +215,8 @@ impl DiagnosticEngine {
             },
             KnownPattern {
                 name: "DatabaseError".to_string(),
-                pattern: Regex::new(r"(?i)(database.*error|connection.*pool|sql.*error)").unwrap(),
+                pattern: Regex::new(r"(?i)(database.*error|connection.*pool|sql.*error)")
+                    .expect("Invalid DatabaseError regex pattern"),
                 cause_type: CauseType::DatabaseConnection,
                 severity: Severity::Medium,
                 suggestions: vec![
@@ -222,7 +226,8 @@ impl DiagnosticEngine {
             },
             KnownPattern {
                 name: "ConfigError".to_string(),
-                pattern: Regex::new(r"(?i)(config.*error|invalid.*setting|missing.*config)").unwrap(),
+                pattern: Regex::new(r"(?i)(config.*error|invalid.*setting|missing.*config)")
+                    .expect("Invalid ConfigError regex pattern"),
                 cause_type: CauseType::ConfigurationError,
                 severity: Severity::Medium,
                 suggestions: vec![

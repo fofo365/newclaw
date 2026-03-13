@@ -42,6 +42,23 @@ impl Default for WatchdogConfig {
     }
 }
 
+/// 租约存储类型
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LeaseStorageType {
+    /// 内存存储（开发环境，不推荐生产）
+    Memory,
+    /// Redis 存储（生产环境推荐）
+    Redis,
+}
+
+impl Default for LeaseStorageType {
+    fn default() -> Self {
+        // 生产环境默认使用 Redis
+        Self::Redis
+    }
+}
+
 /// 租约配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LeaseConfig {
@@ -50,6 +67,12 @@ pub struct LeaseConfig {
     
     /// 续约截止时间（秒）
     pub renew_deadline: u64,
+    
+    /// 存储类型
+    pub storage: LeaseStorageType,
+    
+    /// Redis 连接地址（当 storage 为 Redis 时使用）
+    pub redis_url: String,
 }
 
 impl Default for LeaseConfig {
@@ -57,6 +80,8 @@ impl Default for LeaseConfig {
         Self {
             duration: 15,
             renew_deadline: 10,
+            storage: LeaseStorageType::Redis,
+            redis_url: "redis://127.0.0.1:6379".to_string(),
         }
     }
 }

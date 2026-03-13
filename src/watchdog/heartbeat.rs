@@ -167,8 +167,10 @@ impl HeartbeatChecker {
     pub async fn check(&self, status: HeartbeatStatus) -> anyhow::Result<HeartbeatStatus> {
         // 更新最后状态
         {
-            let mut last = self.last_status.write().unwrap();
-            *last = Some(status.clone());
+            match self.last_status.write() {
+                Ok(mut last) => *last = Some(status.clone()),
+                Err(e) => tracing::error!("Failed to acquire write lock: {}", e),
+            }
         }
         
         if status.is_healthy() {
@@ -206,7 +208,13 @@ impl HeartbeatChecker {
     
     /// 获取最后状态
     pub fn last_status(&self) -> Option<HeartbeatStatus> {
-        self.last_status.read().unwrap().clone()
+        match self.last_status.read() {
+            Ok(status) => status.clone(),
+            Err(e) => {
+                tracing::error!("Failed to acquire read lock: {}", e);
+                None
+            }
+        }
     }
 }
 

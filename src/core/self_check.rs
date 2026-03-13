@@ -151,8 +151,10 @@ impl SelfChecker {
         
         // 保存结果
         {
-            let mut last = self.last_result.write().unwrap();
-            *last = Some(result.clone());
+            match self.last_result.write() {
+                Ok(mut last) => *last = Some(result.clone()),
+                Err(e) => tracing::error!("Failed to save last result: {}", e),
+            }
         }
         
         result
@@ -246,7 +248,13 @@ impl SelfChecker {
     
     /// 获取最后一次检查结果
     pub fn last_result(&self) -> Option<SelfCheckResult> {
-        self.last_result.read().unwrap().clone()
+        match self.last_result.read() {
+            Ok(result) => result.clone(),
+            Err(e) => {
+                tracing::error!("Failed to read last result: {}", e);
+                None
+            }
+        }
     }
     
     /// 检查是否需要降级

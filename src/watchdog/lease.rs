@@ -32,7 +32,8 @@ impl Lease {
             id: Uuid::new_v4().to_string(),
             holder,
             created_at: now,
-            expires_at: now + chrono::Duration::from_std(duration).unwrap(),
+            expires_at: now + chrono::Duration::from_std(duration)
+                .expect("Duration conversion should always succeed"),
             last_renewed: now,
         }
     }
@@ -45,7 +46,8 @@ impl Lease {
     /// 续约
     pub fn renew(&mut self, duration: Duration) {
         let now = Utc::now();
-        self.expires_at = now + chrono::Duration::from_std(duration).unwrap();
+        self.expires_at = now + chrono::Duration::from_std(duration)
+            .expect("Duration conversion should always succeed");
         self.last_renewed = now;
     }
     
@@ -126,9 +128,37 @@ pub struct LeaseManager {
 }
 
 impl LeaseManager {
+    /// 创建租约管理器（根据配置选择存储）
     pub fn new(config: LeaseConfig) -> Self {
+        let storage: Box<dyn LeaseStorage> = match config.storage {
+            super::config::LeaseStorageType::Memory => {
+                tracing::warn!("⚠️  Using memory storage for leases - NOT recommended for production");
+                Box::new(MemoryLeaseStorage::new())
+            }
+            super::config::LeaseStorageType::Redis => {
+                #[cfg(feature = "redis-support")]
+                {
+                    match RedisLeaseStorage::new(&config.redis_url) {
+                        Ok(storage) => {
+                            tracing::info!("✅ Redis lease storage initialized: {}", config.redis_url);
+                            Box::new(storage)
+                        }
+                        Err(e) => {
+                            tracing::error!("❌ Failed to connect to Redis: {}. Falling back to memory storage", e);
+                            Box::new(MemoryLeaseStorage::new())
+                        }
+                    }
+                }
+                #[cfg(not(feature = "redis-support"))]
+                {
+                    tracing::warn!("⚠️  Redis storage requested but 'redis-support' feature not enabled. Using memory storage");
+                    Box::new(MemoryLeaseStorage::new())
+                }
+            }
+        };
+        
         Self {
-            storage: Box::new(MemoryLeaseStorage::new()),
+            storage,
             config,
             current_lease: Arc::new(RwLock::new(None)),
         }
@@ -179,16 +209,27 @@ impl LeaseManager {
     
     /// 检查当前租约有效性
     pub fn is_valid(&self) -> bool {
-        let current = self.current_lease.read().unwrap();
-        match current.as_ref() {
-            Some(lease) => lease.is_valid(),
-            None => false,
+        match self.current_lease.read() {
+            Ok(current) => match current.as_ref() {
+                Some(lease) => lease.is_valid(),
+                None => false,
+            },
+            Err(e) => {
+                tracing::error!("Failed to acquire read lock: {}", e);
+                false
+            }
         }
     }
     
     /// 获取当前租约
     pub fn current(&self) -> Option<Lease> {
-        self.current_lease.read().unwrap().clone()
+        match self.current_lease.read() {
+            Ok(current) => current.clone(),
+            Err(e) => {
+                tracing::error!("Failed to acquire read lock: {}", e);
+                None
+            }
+        }
     }
     
     /// 获取租约

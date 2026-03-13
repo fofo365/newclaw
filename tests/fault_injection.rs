@@ -85,6 +85,8 @@ mod fault_injection_tests {
         let config = newclaw::watchdog::config::LeaseConfig {
             duration: 15,
             renew_deadline: 10,
+            storage: newclaw::watchdog::config::LeaseStorageType::Memory,
+            redis_url: String::new(),
         };
         
         assert_eq!(config.duration, 15);
@@ -134,7 +136,7 @@ mod fault_injection_tests {
     /// 测试：快速修复执行器创建
     #[test]
     fn test_quick_fix_executor_creation() {
-        let executor = newclaw::watchdog::quick_fix::QuickFixExecutor::new(
+        let _executor = newclaw::watchdog::quick_fix::QuickFixExecutor::new(
             "newclaw-gateway".to_string()
         );
         // 验证执行器成功创建

@@ -69,6 +69,8 @@ async fn main() -> anyhow::Result<()> {
         lease: newclaw::watchdog::config::LeaseConfig {
             duration: cli.lease_duration,
             renew_deadline: 10,
+            storage: newclaw::watchdog::config::LeaseStorageType::Redis,
+            redis_url: std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string()),
         },
         ..Default::default()
     };

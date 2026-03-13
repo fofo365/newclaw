@@ -94,8 +94,14 @@ impl DegradedModeManager {
         }
         
         self.is_degraded.store(true, Ordering::SeqCst);
-        *self.degraded_since.write().unwrap() = Some(Utc::now());
-        *self.reason.write().unwrap() = reason.to_string();
+        match self.degraded_since.write() {
+            Ok(mut since) => *since = Some(Utc::now()),
+            Err(e) => tracing::error!("Failed to acquire write lock: {}", e),
+        }
+        match self.reason.write() {
+            Ok(mut r) => *r = reason.to_string(),
+            Err(e) => tracing::error!("Failed to acquire write lock: {}", e),
+        }
         
         tracing::warn!("Entered degraded mode: {}", reason);
     }
@@ -103,8 +109,14 @@ impl DegradedModeManager {
     /// 退出降级模式
     pub fn exit(&self) {
         self.is_degraded.store(false, Ordering::SeqCst);
-        *self.degraded_since.write().unwrap() = None;
-        *self.reason.write().unwrap() = String::new();
+        match self.degraded_since.write() {
+            Ok(mut since) => *since = None,
+            Err(e) => tracing::error!("Failed to acquire write lock: {}", e),
+        }
+        match self.reason.write() {
+            Ok(mut r) => *r = String::new(),
+            Err(e) => tracing::error!("Failed to acquire write lock: {}", e),
+        }
         
         tracing::info!("Exited degraded mode");
     }
@@ -142,28 +154,37 @@ impl DegradedModeManager {
             return true;
         }
         
-        let disabled = self.disabled_features.read().unwrap();
-        !disabled.contains(feature)
+        match self.disabled_features.read() {
+            Ok(disabled) => !disabled.contains(feature),
+            Err(e) => {
+                tracing::error!("Failed to acquire read lock: {}", e);
+                true // 安全默认：允许功能
+            }
+        }
     }
     
     /// 添加禁用的功能
     pub fn disable_feature(&self, feature: &str) {
-        let mut disabled = self.disabled_features.write().unwrap();
-        disabled.insert(feature.to_string());
+        match self.disabled_features.write() {
+            Ok(mut disabled) => { disabled.insert(feature.to_string()); },
+            Err(e) => tracing::error!("Failed to acquire write lock: {}", e),
+        }
     }
     
     /// 启用功能
     pub fn enable_feature(&self, feature: &str) {
-        let mut disabled = self.disabled_features.write().unwrap();
-        disabled.remove(feature);
+        match self.disabled_features.write() {
+            Ok(mut disabled) => { disabled.remove(feature); },
+            Err(e) => tracing::error!("Failed to acquire write lock: {}", e),
+        }
     }
     
     /// 获取当前状态
     pub fn get_state(&self) -> DegradedState {
         DegradedState {
             is_degraded: self.is_degraded.load(Ordering::SeqCst),
-            degraded_since: *self.degraded_since.read().unwrap(),
-            reason: self.reason.read().unwrap().clone(),
+            degraded_since: self.degraded_since.read().ok().and_then(|s| *s),
+            reason: self.reason.read().ok().map(|r| r.clone()).unwrap_or_default(),
             current_requests: self.current_requests.load(Ordering::SeqCst),
             rejected_requests: self.rejected_requests.load(Ordering::SeqCst),
         }

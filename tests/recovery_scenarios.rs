@@ -8,11 +8,8 @@ mod recovery_scenario_tests {
         HeartbeatStatus, DiagnosticEngine, RecoveryExecutor, RecoveryLevel,
         AuditLogger, QuickFixExecutor,
     };
-    use newclaw::watchdog::recovery::{RecoveryPlan, RecoveryAction};
     use newclaw::watchdog::diagnostic::{DiagnosticResult, RootCause, Severity, CauseType};
-    use newclaw::core::{
-        SelfChecker, SelfCheckConfig, DegradedModeManager, DegradedModeConfig,
-    };
+    use newclaw::core::{SelfChecker, SelfCheckConfig};
     use newclaw::watchdog::config::AuditConfig;
     use newclaw::watchdog::heartbeat::HeartbeatConfig;
 
@@ -271,7 +268,7 @@ mod recovery_scenario_tests {
         // 场景：L1 恢复失败 → L2 恢复失败
         // 预期：升级到 L3 → 人工介入
         
-        let rt = tokio::runtime::Runtime::new().unwrap();
+        let _rt = tokio::runtime::Runtime::new().unwrap();
         
         // 1. L1 计划失败后升级
         let l1_plan = RecoveryExecutor::generate_l1_plan(

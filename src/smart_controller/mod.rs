@@ -187,11 +187,47 @@ async fn send_heartbeat_to_watchdog(
     watchdog_addr: &str,
     report: &crate::core::heartbeat_reporter::HeartbeatReport,
 ) -> anyhow::Result<()> {
-    // TODO: 实现 gRPC 客户端调用
-    // 目前使用 HTTP POST 作为简单实现
-    let client = reqwest::Client::new();
+    // 尝试使用 gRPC 客户端
+    use crate::watchdog::grpc::WatchdogClient;
     
-    let url = format!("{}/heartbeat", watchdog_addr);
+    // 创建客户端并连接
+    let mut client = WatchdogClient::new(watchdog_addr.to_string());
+    
+    match client.connect().await {
+        Ok(_) => {
+            // 使用 gRPC 发送心跳
+            let health_status = match &report.health {
+                HealthState::Healthy => 1,
+                HealthState::Degraded(_) => 2,
+                HealthState::Unhealthy(_) => 3,
+            };
+            
+            match client.send_heartbeat(
+                report.lease_id.clone(),
+                health_status,
+                report.metrics.memory_mb,
+                report.metrics.cpu_percent as f32,
+                report.metrics.active_sessions,
+                report.recent_errors.clone(),
+                "smart_controller".to_string(),
+            ).await {
+                Ok(_) => {
+                    tracing::debug!("Heartbeat sent via gRPC");
+                    return Ok(());
+                }
+                Err(e) => {
+                    tracing::warn!("gRPC heartbeat failed: {}, falling back to HTTP", e);
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!("gRPC connection failed: {}, falling back to HTTP", e);
+        }
+    }
+    
+    // HTTP fallback
+    let client = reqwest::Client::new();
+    let url = format!("{}/heartbeat", watchdog_addr.replace("http://", "http://"));
     
     let response = client
         .post(&url)
