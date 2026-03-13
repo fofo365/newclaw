@@ -8,17 +8,14 @@ use std::time::{Duration, Instant};
 
 /// 健康状态
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default)]
 pub enum HealthStatus {
+    #[default]
     Healthy,
     Degraded,
     Unhealthy,
 }
 
-impl Default for HealthStatus {
-    fn default() -> Self {
-        Self::Healthy
-    }
-}
 
 /// 组件健康检查结果
 #[derive(Debug, Clone, Serialize, Deserialize)]

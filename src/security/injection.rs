@@ -79,7 +79,7 @@ impl PromptInjectionDetector {
         
         for (pattern, threat_type, severity, description) in ignore_patterns {
             if let Ok(re) = Regex::new(pattern) {
-                patterns.push((re, threat_type, severity as u8, description.to_string()));
+                patterns.push((re, threat_type, severity, description.to_string()));
             }
         }
         
@@ -95,7 +95,7 @@ impl PromptInjectionDetector {
         
         for (pattern, threat_type, severity, description) in roleplay_patterns {
             if let Ok(re) = Regex::new(pattern) {
-                patterns.push((re, threat_type, severity as u8, description.to_string()));
+                patterns.push((re, threat_type, severity, description.to_string()));
             }
         }
         

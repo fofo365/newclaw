@@ -85,12 +85,14 @@ impl JsonRpcResponse {
 /// JSON-RPC ID
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(untagged)]
+#[derive(Default)]
 pub enum JsonRpcId {
     /// 字符串 ID
     String(String),
     /// 数字 ID
     Number(i64),
     /// 空 ID（用于通知）
+    #[default]
     Null,
 }
 
@@ -104,11 +106,6 @@ impl fmt::Display for JsonRpcId {
     }
 }
 
-impl Default for JsonRpcId {
-    fn default() -> Self {
-        Self::Null
-    }
-}
 
 /// JSON-RPC 通知（无响应的请求）
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -198,17 +198,15 @@ impl MemoryTool {
                 let mut entries = fs::read_dir(&base_path).await?;
                 while let Some(entry) = entries.next_entry().await? {
                     let path = entry.path();
-                    if path.extension().map(|e| e == "md").unwrap_or(false) {
-                        if self.update_in_file(&path, id, new_content).await? {
+                    if path.extension().map(|e| e == "md").unwrap_or(false)
+                        && self.update_in_file(&path, id, new_content).await? {
                             return Ok(true);
                         }
-                    }
                 }
-            } else if base_path.exists() {
-                if self.update_in_file(&base_path, id, new_content).await? {
+            } else if base_path.exists()
+                && self.update_in_file(&base_path, id, new_content).await? {
                     return Ok(true);
                 }
-            }
         }
         
         Ok(false)
@@ -255,17 +253,15 @@ impl MemoryTool {
                 let mut entries = fs::read_dir(&base_path).await?;
                 while let Some(entry) = entries.next_entry().await? {
                     let path = entry.path();
-                    if path.extension().map(|e| e == "md").unwrap_or(false) {
-                        if self.delete_from_file(&path, id).await? {
+                    if path.extension().map(|e| e == "md").unwrap_or(false)
+                        && self.delete_from_file(&path, id).await? {
                             return Ok(true);
                         }
-                    }
                 }
-            } else if base_path.exists() {
-                if self.delete_from_file(&base_path, id).await? {
+            } else if base_path.exists()
+                && self.delete_from_file(&base_path, id).await? {
                     return Ok(true);
                 }
-            }
         }
         
         Ok(false)
@@ -329,8 +325,8 @@ impl MemoryTool {
         }
         
         // 列出每日日志
-        if (source.is_none() || source == Some("daily")) && entries.len() < limit {
-            if self.daily_dir.exists() {
+        if (source.is_none() || source == Some("daily")) && entries.len() < limit
+            && self.daily_dir.exists() {
                 let mut dir_entries = fs::read_dir(&self.daily_dir).await?;
                 while let Some(entry) = dir_entries.next_entry().await? {
                     let path = entry.path();
@@ -354,7 +350,6 @@ impl MemoryTool {
                     }
                 }
             }
-        }
         
         Ok(entries)
     }

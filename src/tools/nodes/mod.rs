@@ -98,6 +98,12 @@ pub struct NodesTool {
     store: Arc<NodeStore>,
 }
 
+impl Default for NodesTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NodesTool {
     pub fn new() -> Self {
         Self {

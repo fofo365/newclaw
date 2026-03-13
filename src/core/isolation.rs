@@ -7,8 +7,10 @@ use tokio::sync::RwLock;
 
 /// Isolation level
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum IsolationLevel {
     /// No isolation - global context
+    #[default]
     None,
     /// User-level isolation
     User(String),
@@ -16,11 +18,6 @@ pub enum IsolationLevel {
     Session(String),
 }
 
-impl Default for IsolationLevel {
-    fn default() -> Self {
-        Self::None
-    }
-}
 
 impl IsolationLevel {
     /// Get namespace for this isolation level

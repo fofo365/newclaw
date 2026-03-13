@@ -104,7 +104,7 @@ impl Tool for WebSearchTool {
         let freshness = args.get("freshness").and_then(|v| v.as_str());
 
         // 验证参数
-        if count < 1 || count > 10 {
+        if !(1..=10).contains(&count) {
             return Err(anyhow::anyhow!("count must be between 1 and 10"));
         }
 

@@ -179,7 +179,7 @@ impl ToolRegistry {
         if let Some(required) = schema.get("required").and_then(|v| v.as_array()) {
             for field in required {
                 if let Some(field_name) = field.as_str() {
-                    if !arguments.get(field_name).is_some() {
+                    if arguments.get(field_name).is_none() {
                         return Err(McpError::InvalidArguments(format!(
                             "Missing required field: '{}'",
                             field_name

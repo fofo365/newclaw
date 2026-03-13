@@ -45,19 +45,15 @@ impl Default for WatchdogConfig {
 /// 租约存储类型
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum LeaseStorageType {
     /// 内存存储（开发环境，不推荐生产）
     Memory,
     /// Redis 存储（生产环境推荐）
+    #[default]
     Redis,
 }
 
-impl Default for LeaseStorageType {
-    fn default() -> Self {
-        // 生产环境默认使用 Redis
-        Self::Redis
-    }
-}
 
 /// 租约配置
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -4,7 +4,7 @@ pub mod server;
 pub mod client;
 
 pub use server::WatchdogGrpcServer;
-pub use client::WatchdogClient;
+pub use client::{WatchdogClient, HeartbeatData};
 
 // 导出 gRPC 客户端类型（由 tonic 自动生成）
 pub mod proto {

@@ -94,6 +94,12 @@ pub struct ExamplePlugin {
     version: String,
 }
 
+impl Default for ExamplePlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ExamplePlugin {
     pub fn new() -> Self {
         Self {

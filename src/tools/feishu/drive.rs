@@ -10,6 +10,12 @@ pub struct FeishuDriveTool {
     client: Arc<FeishuClient>,
 }
 
+impl Default for FeishuDriveTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FeishuDriveTool {
     pub fn new() -> Self {
         let config = FeishuConfig::default();

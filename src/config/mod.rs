@@ -12,6 +12,7 @@ use anyhow::{Result, Context};
 
 /// 主配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct Config {
     #[serde(default)]
     pub llm: LLMConfig,
@@ -381,12 +382,8 @@ impl Config {
         
         GlmProviderConfig {
             api_key: self.llm.glm.api_key.clone(),
-            region: self.llm.glm.region.clone().is_empty()
-                .then(|| region.to_string())
-                .unwrap_or_else(|| self.llm.glm.region.clone()),
-            provider_type: self.llm.glm.provider_type.clone().is_empty()
-                .then(|| provider_type.to_string())
-                .unwrap_or_else(|| self.llm.glm.provider_type.clone()),
+            region: if self.llm.glm.region.clone().is_empty() { region.to_string() } else { self.llm.glm.region.clone() },
+            provider_type: if self.llm.glm.provider_type.clone().is_empty() { provider_type.to_string() } else { self.llm.glm.provider_type.clone() },
             base_url: self.llm.glm.base_url.clone(),
         }
     }
@@ -420,16 +417,6 @@ fn parse_glm_provider_name(name: &str) -> (&'static str, &'static str) {
     }
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            llm: LLMConfig::default(),
-            gateway: GatewayConfig::default(),
-            tools: ToolsConfig::default(),
-            feishu: FeishuConfig::default(),
-        }
-    }
-}
 
 /// 飞书配置
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

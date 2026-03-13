@@ -111,18 +111,15 @@ pub enum MessagePayload {
 
 /// Message priority
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum MessagePriority {
     Low,
+    #[default]
     Normal,
     High,
     Urgent,
 }
 
-impl Default for MessagePriority {
-    fn default() -> Self {
-        Self::Normal
-    }
-}
 
 /// Request types
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -37,8 +37,10 @@ impl std::fmt::Display for SkillId {
 
 /// Skill 类型
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum SkillType {
     /// OpenClaw 原生 Skill
+    #[default]
     OpenClaw,
     /// NewClaw 原生插件
     NewClaw,
@@ -50,11 +52,6 @@ pub enum SkillType {
     Python,
 }
 
-impl Default for SkillType {
-    fn default() -> Self {
-        Self::OpenClaw
-    }
-}
 
 /// Skill 权限
 #[derive(Debug, Clone, Serialize, Deserialize)]

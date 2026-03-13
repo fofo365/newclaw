@@ -44,7 +44,7 @@ impl QuickFixExecutor {
         
         // 使用 systemctl restart
         let output = Command::new("systemctl")
-            .args(&["restart", &self.service_name])
+            .args(["restart", &self.service_name])
             .output()?;
         
         if output.status.success() {
@@ -53,7 +53,7 @@ impl QuickFixExecutor {
             
             // 检查服务状态
             let status = Command::new("systemctl")
-                .args(&["is-active", &self.service_name])
+                .args(["is-active", &self.service_name])
                 .output()?;
             
             let status_str = String::from_utf8_lossy(&status.stdout).trim().to_string();
@@ -77,7 +77,7 @@ impl QuickFixExecutor {
         if let Some(ref redis_addr) = self.redis_addr {
             // 使用 redis-cli FLUSHDB
             let output = Command::new("redis-cli")
-                .args(&["-u", redis_addr, "FLUSHDB"])
+                .args(["-u", redis_addr, "FLUSHDB"])
                 .output()?;
             
             if output.status.success() {
@@ -171,11 +171,10 @@ impl QuickFixExecutor {
                             .duration_since(modified)
                             .unwrap_or(Duration::ZERO);
                         // 删除超过 1 小时的临时文件
-                        if age > Duration::from_secs(3600) {
-                            if std::fs::remove_file(entry.path()).is_ok() {
+                        if age > Duration::from_secs(3600)
+                            && std::fs::remove_file(entry.path()).is_ok() {
                                 count += 1;
                             }
-                        }
                     }
                 }
             }
@@ -201,7 +200,7 @@ impl QuickFixExecutor {
     /// 检查服务状态
     pub async fn check_service_status(&self) -> Result<ServiceStatus> {
         let output = Command::new("systemctl")
-            .args(&["show", &self.service_name, "--property=ActiveState,SubState,MainPID"])
+            .args(["show", &self.service_name, "--property=ActiveState,SubState,MainPID"])
             .output()?;
         
         if output.status.success() {

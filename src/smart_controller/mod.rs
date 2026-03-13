@@ -202,15 +202,17 @@ async fn send_heartbeat_to_watchdog(
                 HealthState::Unhealthy(_) => 3,
             };
             
-            match client.send_heartbeat(
-                report.lease_id.clone(),
+            let heartbeat_data = crate::watchdog::grpc::HeartbeatData {
+                lease_id: report.lease_id.clone(),
                 health_status,
-                report.metrics.memory_mb,
-                report.metrics.cpu_percent as f32,
-                report.metrics.active_sessions,
-                report.recent_errors.clone(),
-                "smart_controller".to_string(),
-            ).await {
+                memory_mb: report.metrics.memory_mb,
+                cpu_percent: report.metrics.cpu_percent as f32,
+                active_sessions: report.metrics.active_sessions,
+                errors: report.recent_errors.clone(),
+                component: "smart_controller".to_string(),
+            };
+            
+            match client.send_heartbeat(&heartbeat_data).await {
                 Ok(_) => {
                     tracing::debug!("Heartbeat sent via gRPC");
                     return Ok(());
@@ -227,7 +229,8 @@ async fn send_heartbeat_to_watchdog(
     
     // HTTP fallback
     let client = reqwest::Client::new();
-    let url = format!("{}/heartbeat", watchdog_addr.replace("http://", "http://"));
+    let base_url = watchdog_addr.trim_end_matches('/');
+    let url = format!("{}/heartbeat", base_url);
     
     let response = client
         .post(&url)

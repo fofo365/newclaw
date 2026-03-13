@@ -103,6 +103,12 @@ pub struct DiagnosticResult {
     pub suggested_level: RecoveryLevel,
 }
 
+impl Default for DiagnosticResult {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DiagnosticResult {
     pub fn new() -> Self {
         Self {
@@ -126,7 +132,7 @@ impl DiagnosticResult {
     }
     
     pub fn with_root_causes(mut self, causes: Vec<RootCause>) -> Self {
-        if let Some(most_severe) = causes.iter().max_by_key(|c| c.severity.clone() as i32) {
+        if let Some(most_severe) = causes.iter().max_by_key(|c| c.severity as i32) {
             self.suggested_level = most_severe.recovery_level();
         }
         self.root_causes = causes;
@@ -257,7 +263,7 @@ impl DiagnosticEngine {
                     
                     root_causes.push(
                         RootCause::new(
-                            pattern.severity.clone(),
+                            pattern.severity,
                             pattern.cause_type.clone(),
                             format!("Pattern '{}' matched", pattern.name),
                         ).with_suggestions(pattern.suggestions.clone())

@@ -60,7 +60,7 @@ impl SubagentStore {
 
         subagents.values()
             .filter(|s| {
-                threshold.map_or(true, |t| s.last_active >= t)
+                threshold.is_none_or(|t| s.last_active >= t)
             })
             .cloned()
             .collect()
@@ -93,6 +93,12 @@ impl SubagentStore {
 /// 子代理管理工具
 pub struct SubagentsTool {
     store: Arc<SubagentStore>,
+}
+
+impl Default for SubagentsTool {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SubagentsTool {

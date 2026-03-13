@@ -155,6 +155,12 @@ pub struct EventDispatcher {
     handlers: HashMap<String, Box<dyn EventHandler>>,
 }
 
+impl Default for EventDispatcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EventDispatcher {
     pub fn new() -> Self {
         Self {

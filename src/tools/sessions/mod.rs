@@ -78,6 +78,12 @@ pub struct SessionsTool {
     store: Arc<SessionStore>,
 }
 
+impl Default for SessionsTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SessionsTool {
     pub fn new() -> Self {
         Self {

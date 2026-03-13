@@ -123,7 +123,7 @@ impl BatchOptimizerWorker {
 
                     if should_flush {
                         // 处理当前批次
-                        self.process_batch(pending_requests.drain(..).collect()).await;
+                        self.process_batch(std::mem::take(&mut pending_requests)).await;
                         current_tokens = 0;
                     }
 
@@ -141,7 +141,7 @@ impl BatchOptimizerWorker {
                 Err(_) => {
                     // 超时，处理当前批次
                     if !pending_requests.is_empty() {
-                        self.process_batch(pending_requests.drain(..).collect()).await;
+                        self.process_batch(std::mem::take(&mut pending_requests)).await;
                         current_tokens = 0;
                     }
                 }

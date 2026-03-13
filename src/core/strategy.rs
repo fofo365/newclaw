@@ -10,6 +10,12 @@ pub struct StrategyEngine {
     pub active_strategy: Option<Box<dyn Strategy>>,
 }
 
+impl Default for StrategyEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StrategyEngine {
     pub fn new() -> Self {
         Self {

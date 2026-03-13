@@ -44,7 +44,7 @@ pub fn pkcs7_pad(data: &[u8], block_size: usize) -> Vec<u8> {
     let mod_val = data.len() % block_size;
     let pad = if mod_val == 0 { block_size } else { block_size - mod_val };
     let mut result = data.to_vec();
-    result.extend(std::iter::repeat(pad as u8).take(pad));
+    result.extend(std::iter::repeat_n(pad as u8, pad));
     result
 }
 
@@ -76,7 +76,7 @@ pub fn pkcs7_unpad(data: &[u8], block_size: usize) -> Result<Vec<u8>> {
 ///
 /// 算法：sha1(sort(token, timestamp, nonce, encrypt_msg))
 pub fn compute_msg_signature(token: &str, timestamp: &str, nonce: &str, encrypt: &str) -> String {
-    let mut parts = vec![token, timestamp, nonce, encrypt];
+    let mut parts = [token, timestamp, nonce, encrypt];
     parts.sort();
     
     let mut hasher = Sha1::new();

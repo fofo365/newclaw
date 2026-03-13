@@ -84,6 +84,12 @@ pub struct SelfCheckResult {
     pub warnings: Vec<String>,
 }
 
+impl Default for SelfCheckResult {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SelfCheckResult {
     pub fn new() -> Self {
         Self {

@@ -72,7 +72,7 @@ impl VectorIndex {
         let mut results: Vec<(String, f32, String)> = entries
             .values()
             .map(|entry| {
-                let similarity = cosine_similarity(&query_vector, &entry.vector);
+                let similarity = cosine_similarity(query_vector, &entry.vector);
                 (entry.id.clone(), similarity, entry.content.clone())
             })
             .collect();

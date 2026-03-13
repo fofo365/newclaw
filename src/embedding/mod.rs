@@ -70,8 +70,10 @@ pub struct BatchEmbeddingResult {
 
 /// 嵌入模型类型
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Default)]
 pub enum EmbeddingModel {
     /// OpenAI text-embedding-3-small (1536 维, 性价比高)
+    #[default]
     OpenAI3Small,
     /// OpenAI text-embedding-3-large (3072 维, 质量高)
     OpenAI3Large,
@@ -117,11 +119,6 @@ impl EmbeddingModel {
     }
 }
 
-impl Default for EmbeddingModel {
-    fn default() -> Self {
-        EmbeddingModel::OpenAI3Small
-    }
-}
 
 /// 嵌入配置
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -36,6 +36,7 @@ impl Default for DegradedModeConfig {
 
 /// 降级状态
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct DegradedState {
     /// 是否处于降级模式
     pub is_degraded: bool,
@@ -49,17 +50,6 @@ pub struct DegradedState {
     pub rejected_requests: u64,
 }
 
-impl Default for DegradedState {
-    fn default() -> Self {
-        Self {
-            is_degraded: false,
-            degraded_since: None,
-            reason: String::new(),
-            current_requests: 0,
-            rejected_requests: 0,
-        }
-    }
-}
 
 /// 降级模式管理器
 pub struct DegradedModeManager {

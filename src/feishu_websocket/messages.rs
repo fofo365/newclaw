@@ -733,10 +733,8 @@ impl MessageSender {
     ) -> WebSocketResult<String> {
         let url = format!("{}/open-apis/im/v1/messages", self.base_url);
         
-        let mut params = vec![
-            ("receive_id", receive_id.to_string()),
-            ("receive_id_type", receive_id_type.as_str().to_string()),
-        ];
+        let mut params = [("receive_id", receive_id.to_string()),
+            ("receive_id_type", receive_id_type.as_str().to_string())];
         
         // 这里应该调用实际的飞书 API
         // 暂时返回模拟的消息 ID

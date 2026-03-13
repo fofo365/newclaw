@@ -81,7 +81,7 @@ impl SandboxManager {
         let config = skills.get(id)
             .ok_or_else(|| anyhow::anyhow!("Skill not found: {}", id))?;
         
-        self.check_permissions(&config, &input)?;
+        self.check_permissions(config, &input)?;
         
         let start = std::time::Instant::now();
         let result = self.execute_skill(config, input).await?;

@@ -115,7 +115,7 @@ pub async fn update_llm_config(
 ) -> Result<Json<LLMConfigResponse>, AppError> {
     // 更新配置
     state.update_llm_config(payload).await
-        .map_err(|e| AppError(e))?;
+        .map_err(AppError)?;
     
     // 返回更新后的配置
     get_llm_config(Extension(state)).await

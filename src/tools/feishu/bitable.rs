@@ -10,6 +10,12 @@ pub struct FeishuBitableTool {
     client: Arc<FeishuClient>,
 }
 
+impl Default for FeishuBitableTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FeishuBitableTool {
     pub fn new() -> Self {
         let config = FeishuConfig::default();

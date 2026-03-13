@@ -10,6 +10,12 @@ pub struct FeishuChatTool {
     client: Arc<FeishuClient>,
 }
 
+impl Default for FeishuChatTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FeishuChatTool {
     pub fn new() -> Self {
         let config = FeishuConfig::default();

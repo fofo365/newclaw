@@ -15,8 +15,10 @@ use super::notifier::{Notifier, AlertMessage, AlertLevel};
 /// 恢复级别
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum RecoveryLevel {
     /// L1 - 快速修复
+    #[default]
     L1QuickFix,
     /// L2 - AI 诊断
     L2AiDiagnosis,
@@ -24,11 +26,6 @@ pub enum RecoveryLevel {
     L3HumanIntervention,
 }
 
-impl Default for RecoveryLevel {
-    fn default() -> Self {
-        Self::L1QuickFix
-    }
-}
 
 /// 恢复状态
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -276,7 +273,7 @@ impl RecoveryExecutor {
             self.audit_log.log_recovery(
                 EventType::RecoveryFailed,
                 &plan.id,
-                format!("Recovery failed"),
+                "Recovery failed".to_string(),
             )?;
             return Ok(result);
         }

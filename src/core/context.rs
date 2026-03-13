@@ -157,7 +157,7 @@ impl ContextManager {
     pub fn add_message(&mut self, message: &str, source: &str) -> Result<String> {
         let chunks = self.chunk_text(message)?;
         
-        for chunk in chunks {
+        if let Some(chunk) = chunks.into_iter().next() {
             let id = uuid::Uuid::new_v4().to_string();
             let tokens = estimate_tokens(&chunk);
             let timestamp = std::time::SystemTime::now()
@@ -283,7 +283,7 @@ impl ContextManager {
     pub async fn add_message_async(&mut self, message: &str, source: &str) -> Result<String> {
         let chunks = self.chunk_text(message)?;
         
-        for chunk in chunks {
+        if let Some(chunk) = chunks.into_iter().next() {
             let id = uuid::Uuid::new_v4().to_string();
             let tokens = estimate_tokens(&chunk);
             let timestamp = std::time::SystemTime::now()

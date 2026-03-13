@@ -219,7 +219,7 @@ impl EmbeddingPipeline {
         }
 
         // 转换为 Vec，移除 None
-        let embeddings: Vec<EmbeddingResult> = all_embeddings.into_iter().filter_map(|x| x).collect();
+        let embeddings: Vec<EmbeddingResult> = all_embeddings.into_iter().flatten().collect();
 
         // 计算统计信息
         let total_tokens: usize = embeddings.iter().map(|e| e.tokens).sum();

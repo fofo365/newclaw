@@ -275,7 +275,7 @@ impl WeComClient {
         
         let part = multipart::Part::bytes(data)
             .file_name(filename.to_string())
-            .mime_str(&guess_mime_type(filename))
+            .mime_str(guess_mime_type(filename))
             .unwrap_or_else(|_| multipart::Part::bytes(vec![]).file_name(filename.to_string()));
         
         let form = multipart::Form::new()

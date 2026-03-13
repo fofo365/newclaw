@@ -9,6 +9,7 @@ use anyhow::{Result, anyhow};
 
 /// 上下文配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct ContextSystemConfig {
     /// 嵌入配置
     pub embedding: EmbeddingSection,
@@ -22,17 +23,6 @@ pub struct ContextSystemConfig {
     pub storage: StorageSection,
 }
 
-impl Default for ContextSystemConfig {
-    fn default() -> Self {
-        Self {
-            embedding: EmbeddingSection::default(),
-            retrieval: RetrievalSection::default(),
-            compression: CompressionSection::default(),
-            policy: PolicySection::default(),
-            storage: StorageSection::default(),
-        }
-    }
-}
 
 /// 嵌入配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -284,12 +274,11 @@ impl ConfigLoader {
         }
         
         // 验证压缩配置
-        if self.config.compression.enabled {
-            if self.config.compression.target_ratio <= 0.0 
-                || self.config.compression.target_ratio > 1.0 {
+        if self.config.compression.enabled
+            && (self.config.compression.target_ratio <= 0.0 
+                || self.config.compression.target_ratio > 1.0) {
                 return Err(anyhow!("Target ratio must be between 0 and 1"));
             }
-        }
         
         Ok(())
     }

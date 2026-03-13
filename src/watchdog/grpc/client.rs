@@ -18,6 +18,18 @@ use super::proto::{
     ReleaseLeaseResponse,
 };
 
+/// 心跳数据
+#[derive(Debug, Clone)]
+pub struct HeartbeatData {
+    pub lease_id: String,
+    pub health_status: i32,
+    pub memory_mb: u64,
+    pub cpu_percent: f32,
+    pub active_sessions: u64,
+    pub errors: Vec<String>,
+    pub component: String,
+}
+
 /// Watchdog gRPC 客户端
 pub struct WatchdogClient {
     /// 租约服务客户端
@@ -123,37 +135,31 @@ impl WatchdogClient {
     /// 发送心跳
     pub async fn send_heartbeat(
         &mut self,
-        lease_id: String,
-        health_status: i32,
-        memory_mb: u64,
-        cpu_percent: f32,
-        active_sessions: u64,
-        errors: Vec<String>,
-        component: String,
+        data: &HeartbeatData,
     ) -> anyhow::Result<bool> {
         let client = self.heartbeat_client.as_mut()
             .ok_or_else(|| anyhow::anyhow!("Not connected to Watchdog"))?;
         
         let request = tonic::Request::new(HeartbeatRequest {
-            lease_id,
+            lease_id: data.lease_id.clone(),
             timestamp: chrono::Utc::now().timestamp_millis(),
             health: Some(super::proto::HealthStatus {
-                status: health_status,
+                status: data.health_status,
                 message: String::new(),
                 checks: vec![],
             }),
             metrics: Some(super::proto::SystemMetrics {
-                memory_mb,
-                cpu_percent,
-                active_sessions,
+                memory_mb: data.memory_mb,
+                cpu_percent: data.cpu_percent,
+                active_sessions: data.active_sessions,
                 request_rate: 0,
                 error_rate: 0,
                 uptime_secs: 0,
                 goroutines: 0,
                 open_fds: 0,
             }),
-            recent_errors: errors,
-            component,
+            recent_errors: data.errors.clone(),
+            component: data.component.clone(),
         });
         
         let response: tonic::Response<HeartbeatResponse> = client.report_heartbeat(request).await?;

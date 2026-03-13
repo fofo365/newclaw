@@ -334,6 +334,12 @@ pub struct CacheFallback {
     cache: Arc<RwLock<std::collections::HashMap<String, String>>>,
 }
 
+impl Default for CacheFallback {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CacheFallback {
     pub fn new() -> Self {
         Self {

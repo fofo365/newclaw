@@ -20,19 +20,15 @@ use super::provider::{ChatRequest, ChatResponse, LLMError, LLMProviderV3, Messag
 /// GLM 区域枚举
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 pub enum GlmRegion {
     /// 中国区域 - open.bigmodel.cn
     China,
     /// 国际区域 - api.z.ai
+    #[default]
     International,
 }
 
-impl Default for GlmRegion {
-    fn default() -> Self {
-        // 默认使用国际区域（更稳定）
-        GlmRegion::International
-    }
-}
 
 impl GlmRegion {
     /// 从字符串解析区域
@@ -70,18 +66,15 @@ const GLMCODE_CN_BASE_URL: &str = "https://open.bigmodel.cn/api/coding/paas/v4";
 /// GLM Provider 类型
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
+#[derive(Default)]
 pub enum GlmProviderType {
     /// 标准 GLM API
+    #[default]
     Glm,
     /// GLMCode (Coding 专用)
     GlmCode,
 }
 
-impl Default for GlmProviderType {
-    fn default() -> Self {
-        GlmProviderType::Glm
-    }
-}
 
 /// GLM Provider 配置
 #[derive(Debug, Clone, Serialize, Deserialize)]

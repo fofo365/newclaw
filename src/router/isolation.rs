@@ -9,10 +9,12 @@ use anyhow::{Result, anyhow};
 
 /// 隔离级别
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum IsolationLevel {
     /// 无隔离（共享所有资源）
     None,
     /// 上下文隔离（独立的上下文空间）
+    #[default]
     Context,
     /// 工具隔离（独立的工具权限）
     Tools,
@@ -22,11 +24,6 @@ pub enum IsolationLevel {
     Full,
 }
 
-impl Default for IsolationLevel {
-    fn default() -> Self {
-        Self::Context
-    }
-}
 
 /// 资源配额
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,6 +78,7 @@ impl ResourceQuota {
 
 /// 隔离配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct IsolationConfig {
     /// 隔离级别
     pub level: IsolationLevel,
@@ -92,16 +90,6 @@ pub struct IsolationConfig {
     pub allowed_communications: HashSet<RouterId>,
 }
 
-impl Default for IsolationConfig {
-    fn default() -> Self {
-        Self {
-            level: IsolationLevel::default(),
-            quota: ResourceQuota::default(),
-            shared_resources: HashSet::new(),
-            allowed_communications: HashSet::new(),
-        }
-    }
-}
 
 /// 隔离边界
 #[derive(Debug)]

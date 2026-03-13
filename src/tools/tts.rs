@@ -7,6 +7,12 @@ use serde_json::json;
 /// TTS 工具
 pub struct TtsTool;
 
+impl Default for TtsTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TtsTool {
     pub fn new() -> Self {
         Self {}

@@ -243,7 +243,7 @@ impl DashboardState {
     pub async fn update_llm_config(&self, updates: crate::dashboard::config_api::UpdateLLMConfigRequest) -> anyhow::Result<()> {
         let mut llm_config = self.llm_config.write().await;
 
-        let config = llm_config.get_or_insert_with(|| crate::config::LLMConfig::default());
+        let config = llm_config.get_or_insert_with(crate::config::LLMConfig::default);
 
         // 应用更新
         if let Some(provider) = updates.provider {

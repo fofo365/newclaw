@@ -29,6 +29,12 @@ pub struct StreamingResponse {
     pub complete: bool,
 }
 
+impl Default for StreamingResponse {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StreamingResponse {
     pub fn new() -> Self {
         Self {
@@ -161,7 +167,7 @@ pub async fn stream_llm_response<P: LLMProviderV3>(
                 callback(StreamChunk::Data(chunk_str));
                 
                 // 模拟网络延迟
-                if i < content.as_bytes().len() / chunk_size {
+                if i < content.len() / chunk_size {
                     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
                 }
             }
@@ -205,6 +211,12 @@ impl Stream for WebSocketStream {
 pub struct FeishuStreamAdapter {
     pub chunks: Vec<String>,
     pub message_id: Option<String>,
+}
+
+impl Default for FeishuStreamAdapter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FeishuStreamAdapter {

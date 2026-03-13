@@ -248,7 +248,7 @@ impl HeartbeatManager {
         
         components.push(ComponentHealth {
             name: "memory".to_string(),
-            status: memory_health.clone(),
+            status: memory_health,
             message: format!("Memory usage: {:.1}%", metrics.memory_usage_percent),
             metrics: serde_json::json!({
                 "used_mb": metrics.memory_used_mb,
@@ -272,7 +272,7 @@ impl HeartbeatManager {
         
         components.push(ComponentHealth {
             name: "cpu".to_string(),
-            status: cpu_health.clone(),
+            status: cpu_health,
             message: format!("CPU usage: {:.1}%", metrics.cpu_usage_percent),
             metrics: serde_json::json!({
                 "usage_percent": metrics.cpu_usage_percent,
