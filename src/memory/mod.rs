@@ -7,12 +7,16 @@
 // + MMR 去重 (v0.7.0)
 // + 文件级记忆持久化 (v0.7.0)
 // + 分层摘要机制 (v0.7.0)
+// + 向量存储 (v0.7.0 P2)
+// + 代码库嵌入索引 (v0.7.0 P2)
 
 pub mod shared;
 pub mod constraint;
 pub mod storage;
 pub mod file_memory;
 pub mod summary;
+pub mod vector_store;
+pub mod code_embedding;
 
 pub use shared::{
     UserId, MemoryEntry, MemoryType, UserMemory, 
@@ -38,4 +42,15 @@ pub use file_memory::{
 pub use summary::{
     SummaryTree, SummaryNode, SummaryConfig, SummaryStats,
     HierarchicalSummaryManager, SummaryMessage, SummaryAction,
+};
+
+pub use vector_store::{
+    VectorStore, VectorStoreConfig, VectorSearchResult, VectorStoreStats,
+    InMemoryVectorStore, SQLiteVectorStore,
+    cosine_similarity, euclidean_distance, normalize_vector,
+};
+
+pub use code_embedding::{
+    CodeIndex, CodeChunk, ChunkType, CodeIndexConfig, CodeIndexStats,
+    CodeSearchResult,
 };
