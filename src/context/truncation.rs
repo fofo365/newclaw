@@ -73,7 +73,7 @@ impl TruncationStrategy {
     /// 截断消息
     pub async fn truncate(
         &mut self,
-        messages: &Vec<Message>,
+        messages: &[Message],
         max_tokens: usize,
         model: &str,
     ) -> anyhow::Result<Vec<Message>> {
@@ -90,7 +90,7 @@ impl TruncationStrategy {
     /// 智能截断：基于相关性排序
     async fn smart_truncate(
         &mut self,
-        messages: &Vec<Message>,
+        messages: &[Message],
         max_tokens: usize,
         model: &str,
     ) -> anyhow::Result<Vec<Message>> {
@@ -138,7 +138,7 @@ impl TruncationStrategy {
     /// 时间衰减：优先近期信息
     async fn time_decay_truncate(
         &mut self,
-        messages: &Vec<Message>,
+        messages: &[Message],
         max_tokens: usize,
         model: &str,
     ) -> anyhow::Result<Vec<Message>> {
@@ -161,7 +161,7 @@ impl TruncationStrategy {
     /// 语义聚类：去重相似信息（简化实现）
     async fn semantic_cluster_truncate(
         &mut self,
-        messages: &Vec<Message>,
+        messages: &[Message],
         max_tokens: usize,
         model: &str,
     ) -> anyhow::Result<Vec<Message>> {
@@ -191,12 +191,12 @@ impl TruncationStrategy {
     /// 最大化信息：保留最多信息
     async fn maximize_info_truncate(
         &mut self,
-        messages: &Vec<Message>,
+        messages: &[Message],
         max_tokens: usize,
         model: &str,
     ) -> anyhow::Result<Vec<Message>> {
         // 优先保留长消息（包含更多信息）
-        let mut sorted = messages.clone();
+        let mut sorted = messages.to_vec();
         sorted.sort_by_key(|msg| msg.content.len());
 
         let mut result = Vec::new();
@@ -217,12 +217,12 @@ impl TruncationStrategy {
     /// 最小化 Token：最小化成本
     async fn minimize_tokens_truncate(
         &mut self,
-        messages: &Vec<Message>,
+        messages: &[Message],
         max_tokens: usize,
         model: &str,
     ) -> anyhow::Result<Vec<Message>> {
         // 优先保留短消息
-        let mut sorted = messages.clone();
+        let mut sorted = messages.to_vec();
         sorted.sort_by_key(|msg| msg.content.len());
 
         let mut result = Vec::new();
@@ -243,7 +243,7 @@ impl TruncationStrategy {
     /// 平衡模式：平衡信息和成本
     async fn balanced_truncate(
         &mut self,
-        messages: &Vec<Message>,
+        messages: &[Message],
         max_tokens: usize,
         model: &str,
     ) -> anyhow::Result<Vec<Message>> {
@@ -286,7 +286,7 @@ impl TruncationStrategy {
     }
 
     /// 计算消息列表的总 token 数量
-    fn count_total_tokens(&mut self, messages: &Vec<Message>, model: &str) -> anyhow::Result<usize> {
+    fn count_total_tokens(&mut self, messages: &[Message], model: &str) -> anyhow::Result<usize> {
         let mut total = 0;
         for msg in messages {
             total += self.token_counter.count_tokens(&msg.content, model)?;

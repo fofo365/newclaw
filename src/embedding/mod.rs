@@ -101,7 +101,7 @@ impl EmbeddingModel {
     }
 
     /// 从字符串解析
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s {
             "text-embedding-3-small" => Some(EmbeddingModel::OpenAI3Small),
             "text-embedding-3-large" => Some(EmbeddingModel::OpenAI3Large),
@@ -160,16 +160,16 @@ mod tests {
     }
 
     #[test]
-    fn test_embedding_model_from_str() {
+    fn test_embedding_model_parse() {
         assert_eq!(
-            EmbeddingModel::from_str("text-embedding-3-small"),
+            EmbeddingModel::parse("text-embedding-3-small"),
             Some(EmbeddingModel::OpenAI3Small)
         );
         assert_eq!(
-            EmbeddingModel::from_str("text-embedding-3-large"),
+            EmbeddingModel::parse("text-embedding-3-large"),
             Some(EmbeddingModel::OpenAI3Large)
         );
-        assert!(EmbeddingModel::from_str("unknown").is_some());
+        assert!(EmbeddingModel::parse("unknown").is_some());
     }
 
     #[test]

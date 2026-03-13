@@ -33,6 +33,10 @@ pub trait VectorStore: Send + Sync {
     fn delete(&mut self, id: &str) -> Result<bool>;
     
     fn len(&self) -> usize;
+    
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 // Simple in-memory vector store with cosine similarity

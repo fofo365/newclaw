@@ -152,7 +152,7 @@ impl StrategyEngine {
     /// 应用策略
     pub async fn apply(
         &mut self,
-        messages: &Vec<Message>,
+        messages: &[Message],
         strategy_type: StrategyType,
         max_tokens: usize,
         model: &str,
@@ -191,7 +191,7 @@ impl StrategyEngine {
     /// 内部策略应用（简化实现）
     fn apply_strategy_internal(
         &self,
-        messages: &Vec<Message>,
+        messages: &[Message],
         strategy_type: StrategyType,
         max_tokens: usize,
     ) -> anyhow::Result<Vec<Message>> {
@@ -213,7 +213,7 @@ impl StrategyEngine {
             }
             StrategyType::MinimizeTokens => {
                 // 保留短消息
-                let mut sorted = messages.clone();
+                let mut sorted = messages.to_vec();
                 sorted.sort_by_key(|msg| msg.content.len());
 
                 let mut result = Vec::new();
@@ -231,7 +231,7 @@ impl StrategyEngine {
             }
             _ => {
                 // 默认：平衡策略
-                let mut result = messages.clone();
+                let mut result = messages.to_vec();
                 if result.len() > 10 {
                     result = result.split_off(result.len() - 10);
                 }
@@ -241,7 +241,7 @@ impl StrategyEngine {
     }
 
     /// 估算 token 数量（简化实现）
-    fn estimate_tokens(&self, messages: &Vec<Message>, _model: &str) -> anyhow::Result<usize> {
+    fn estimate_tokens(&self, messages: &[Message], _model: &str) -> anyhow::Result<usize> {
         // 简化：假设每 4 个字符 = 1 个 token
         let total_chars: usize = messages.iter().map(|m| m.content.len()).sum();
         Ok(total_chars / 4)

@@ -47,7 +47,7 @@ impl MessageType {
         }
     }
     
-    pub fn from_str(s: &str) -> WebSocketResult<Self> {
+    pub fn parse(s: &str) -> WebSocketResult<Self> {
         match s {
             "text" => Ok(MessageType::Text),
             "post" => Ok(MessageType::Post),
@@ -764,7 +764,7 @@ mod tests {
         let msg_type = MessageType::Text;
         assert_eq!(msg_type.as_str(), "text");
         
-        let parsed = MessageType::from_str("post").unwrap();
+        let parsed = MessageType::parse("post").unwrap();
         assert_eq!(parsed, MessageType::Post);
     }
     

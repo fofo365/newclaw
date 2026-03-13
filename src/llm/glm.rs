@@ -32,7 +32,7 @@ pub enum GlmRegion {
 
 impl GlmRegion {
     /// 从字符串解析区域
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "china" | "cn" | "中国" | "glm-cn" | "bigmodel" => Some(GlmRegion::China),
             "international" | "intl" | "global" | "国际" | "glm" | "zhipu" | "z.ai" => Some(GlmRegion::International),

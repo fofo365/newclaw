@@ -61,18 +61,11 @@ impl OpenClawMigrator {
     
     /// Migrate all OpenClaw data to NewClaw
     pub fn migrate_all(&self) -> Result<MigrationReport> {
-        let mut report = MigrationReport::default();
-        
-        // Migrate memory
-        report.memory = self.migrate_memory()?;
-        
-        // Migrate skills
-        report.skills = self.migrate_skills()?;
-        
-        // Migrate workspace files
-        report.workspace_files = self.migrate_workspace_files()?;
-        
-        Ok(report)
+        Ok(MigrationReport {
+            memory: self.migrate_memory()?,
+            skills: self.migrate_skills()?,
+            workspace_files: self.migrate_workspace_files()?,
+        })
     }
     
     /// Migrate MEMORY.md and memory/ directory

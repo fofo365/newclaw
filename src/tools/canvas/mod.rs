@@ -32,6 +32,18 @@ impl Default for CanvasConfig {
     }
 }
 
+/// Present 参数
+#[derive(Debug, Clone, Default)]
+pub struct PresentParams<'a> {
+    pub url: Option<&'a str>,
+    pub html: Option<&'a str>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub x: Option<i32>,
+    pub y: Option<i32>,
+    pub node: Option<&'a str>,
+}
+
 /// Canvas 状态
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum CanvasStatus {
@@ -93,21 +105,12 @@ impl CanvasTool {
     }
 
     /// 展示内容（URL 或 HTML）
-    async fn present(
-        &self,
-        url: Option<&str>,
-        html: Option<&str>,
-        width: Option<u32>,
-        height: Option<u32>,
-        x: Option<i32>,
-        y: Option<i32>,
-        node: Option<&str>,
-    ) -> Result<Value> {
-        if url.is_none() && html.is_none() {
+    async fn present(&self, params: &PresentParams<'_>) -> Result<Value> {
+        if params.url.is_none() && params.html.is_none() {
             return Err(anyhow::anyhow!("Either url or html must be provided"));
         }
 
-        let (content_type, content) = if let Some(url) = url {
+        let (content_type, content) = if let Some(url) = params.url {
             // 验证 URL
             let url = if url.starts_with("http://") || url.starts_with("https://") || url.starts_with("file://") || url.starts_with("data:") {
                 url.to_string()
@@ -116,7 +119,7 @@ impl CanvasTool {
             };
             (ContentType::Url, url)
         } else {
-            (ContentType::Html, html.unwrap().to_string())
+            (ContentType::Html, params.html.unwrap().to_string())
         };
 
         let session = CanvasSession {
@@ -124,11 +127,11 @@ impl CanvasTool {
             content_type: content_type.clone(),
             content: content.clone(),
             status: CanvasStatus::Presenting,
-            width: width.unwrap_or(self.config.viewport_width),
-            height: height.unwrap_or(self.config.viewport_height),
-            x: x.unwrap_or(0),
-            y: y.unwrap_or(0),
-            node: node.map(|s| s.to_string()),
+            width: params.width.unwrap_or(self.config.viewport_width),
+            height: params.height.unwrap_or(self.config.viewport_height),
+            x: params.x.unwrap_or(0),
+            y: params.y.unwrap_or(0),
+            node: params.node.map(|s| s.to_string()),
         };
 
         // 更新状态
@@ -455,14 +458,16 @@ impl Tool for CanvasTool {
 
         match action {
             "present" => {
-                let url = args.get("url").and_then(|v| v.as_str());
-                let html = args.get("html").and_then(|v| v.as_str());
-                let width = args.get("width").and_then(|v| v.as_u64()).map(|n| n as u32);
-                let height = args.get("height").and_then(|v| v.as_u64()).map(|n| n as u32);
-                let x = args.get("x").and_then(|v| v.as_i64()).map(|n| n as i32);
-                let y = args.get("y").and_then(|v| v.as_i64()).map(|n| n as i32);
-                let node = args.get("node").and_then(|v| v.as_str());
-                self.present(url, html, width, height, x, y, node).await
+                let params = PresentParams {
+                    url: args.get("url").and_then(|v| v.as_str()),
+                    html: args.get("html").and_then(|v| v.as_str()),
+                    width: args.get("width").and_then(|v| v.as_u64()).map(|n| n as u32),
+                    height: args.get("height").and_then(|v| v.as_u64()).map(|n| n as u32),
+                    x: args.get("x").and_then(|v| v.as_i64()).map(|n| n as i32),
+                    y: args.get("y").and_then(|v| v.as_i64()).map(|n| n as i32),
+                    node: args.get("node").and_then(|v| v.as_str()),
+                };
+                self.present(&params).await
             }
 
             "hide" => self.hide().await,

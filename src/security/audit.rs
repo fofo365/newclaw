@@ -25,6 +25,18 @@ pub struct AuditEntry {
     pub user_agent: Option<String>,
 }
 
+/// Parameters for logging an audit entry
+#[derive(Debug, Clone)]
+pub struct AuditLogParams {
+    pub agent_id: AgentId,
+    pub action: String,
+    pub resource: String,
+    pub result: AuditResult,
+    pub details: Option<serde_json::Value>,
+    pub ip_address: Option<String>,
+    pub user_agent: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AuditResult {
     Success,
@@ -77,16 +89,7 @@ impl AuditLogger {
     }
 
     /// Log an audit entry
-    pub async fn log(
-        &self,
-        agent_id: AgentId,
-        action: String,
-        resource: String,
-        result: AuditResult,
-        details: Option<serde_json::Value>,
-        ip_address: Option<String>,
-        user_agent: Option<String>,
-    ) -> Result<String> {
+    pub async fn log(&self, params: AuditLogParams) -> Result<String> {
         if !self.enabled {
             return Ok("audit-disabled".to_string());
         }
@@ -96,13 +99,13 @@ impl AuditLogger {
             id: Uuid::new_v4().to_string(),
             timestamp: now.timestamp(),
             timestamp_iso: now.to_rfc3339(),
-            agent_id,
-            action,
-            resource,
-            result,
-            details,
-            ip_address,
-            user_agent,
+            agent_id: params.agent_id,
+            action: params.action,
+            resource: params.resource,
+            result: params.result,
+            details: params.details,
+            ip_address: params.ip_address,
+            user_agent: params.user_agent,
         };
 
         let id = entry.id.clone();
@@ -131,15 +134,15 @@ impl AuditLogger {
         resource: String,
         details: Option<serde_json::Value>,
     ) -> Result<String> {
-        self.log(
+        self.log(AuditLogParams {
             agent_id,
             action,
             resource,
-            AuditResult::Success,
+            result: AuditResult::Success,
             details,
-            None,
-            None,
-        )
+            ip_address: None,
+            user_agent: None,
+        })
         .await
     }
 
@@ -151,15 +154,15 @@ impl AuditLogger {
         resource: String,
         details: Option<serde_json::Value>,
     ) -> Result<String> {
-        self.log(
+        self.log(AuditLogParams {
             agent_id,
             action,
             resource,
-            AuditResult::Failure,
+            result: AuditResult::Failure,
             details,
-            None,
-            None,
-        )
+            ip_address: None,
+            user_agent: None,
+        })
         .await
     }
 
@@ -171,15 +174,15 @@ impl AuditLogger {
         resource: String,
         details: Option<serde_json::Value>,
     ) -> Result<String> {
-        self.log(
+        self.log(AuditLogParams {
             agent_id,
             action,
             resource,
-            AuditResult::Denied,
+            result: AuditResult::Denied,
             details,
-            None,
-            None,
-        )
+            ip_address: None,
+            user_agent: None,
+        })
         .await
     }
 

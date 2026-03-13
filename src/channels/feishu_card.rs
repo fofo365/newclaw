@@ -810,11 +810,7 @@ pub fn create_card_with_buttons(
                     content: text,
                     icon: None,
                 },
-                action_type: if is_url {
-                    Some("primary".to_string())
-                } else {
-                    Some("primary".to_string())
-                },
+                action_type: Some("primary".to_string()),
                 url: if is_url { Some(url) } else { None },
                 value,
                 confirm: None,

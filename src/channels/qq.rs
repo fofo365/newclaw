@@ -192,14 +192,14 @@ impl QQClient {
 
     /// 解析目标地址
     pub fn parse_target(target: &str) -> Result<TargetInfo, QQError> {
-        let target = target.trim_start_matches("qqbot:");
+        let target = target.strip_prefix("qqbot:").unwrap_or(target);
 
-        let (target_type, id) = if target.starts_with("c2c:") {
-            (TargetType::Direct, target[4..].to_string())
-        } else if target.starts_with("group:") {
-            (TargetType::Group, target[6..].to_string())
-        } else if target.starts_with("channel:") {
-            (TargetType::Channel, target[8..].to_string())
+        let (target_type, id) = if let Some(id) = target.strip_prefix("c2c:") {
+            (TargetType::Direct, id.to_string())
+        } else if let Some(id) = target.strip_prefix("group:") {
+            (TargetType::Group, id.to_string())
+        } else if let Some(id) = target.strip_prefix("channel:") {
+            (TargetType::Channel, id.to_string())
         } else if target.len() == 32 && target.chars().all(|c| c.is_ascii_hexdigit()) {
             // 纯 openid（32位十六进制）
             (TargetType::Direct, target.to_string())

@@ -163,6 +163,12 @@ pub struct ReadinessReport {
     pub message: Option<String>,
 }
 
+impl Default for ReadinessReport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReadinessReport {
     /// 创建就绪报告
     pub fn new() -> Self {

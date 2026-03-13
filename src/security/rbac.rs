@@ -44,7 +44,7 @@ impl Permission {
         }
     }
 
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse(s: &str) -> Self {
         match s {
             "send_message" => Permission::SendMessage,
             "receive_message" => Permission::ReceiveMessage,

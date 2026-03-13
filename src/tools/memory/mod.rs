@@ -439,11 +439,7 @@ impl MemoryTool {
 
     /// 获取记忆片段
     pub async fn get(&self, path: &str, from: Option<usize>, lines: Option<usize>) -> Result<String> {
-        let file_path = if path.starts_with("daily/") {
-            self.memory_dir.join(path)
-        } else {
-            self.memory_dir.join(path)
-        };
+        let file_path = self.memory_dir.join(path);
 
         let content = fs::read_to_string(&file_path).await?;
 
