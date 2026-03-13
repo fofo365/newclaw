@@ -212,6 +212,143 @@ impl LeaseManager {
     }
 }
 
+/// Redis 租约存储
+/// 
+/// 生产环境推荐使用 Redis 存储，支持跨进程租约共享
+#[cfg(feature = "redis-support")]
+pub struct RedisLeaseStorage {
+    client: redis::Client,
+    key_prefix: String,
+}
+
+#[cfg(feature = "redis-support")]
+impl RedisLeaseStorage {
+    pub fn new(redis_url: &str) -> anyhow::Result<Self> {
+        let client = redis::Client::open(redis_url)
+            .map_err(|e| anyhow::anyhow!("Failed to connect to Redis: {}", e))?;
+        
+        Ok(Self {
+            client,
+            key_prefix: "newclaw:lease:".to_string(),
+        })
+    }
+    
+    pub fn with_prefix(redis_url: &str, key_prefix: String) -> anyhow::Result<Self> {
+        let client = redis::Client::open(redis_url)
+            .map_err(|e| anyhow::anyhow!("Failed to connect to Redis: {}", e))?;
+        
+        Ok(Self {
+            client,
+            key_prefix,
+        })
+    }
+    
+    fn lease_key(&self, id: &str) -> String {
+        format!("{}{}", self.key_prefix, id)
+    }
+    
+    fn list_key(&self) -> String {
+        format!("{}__all__", self.key_prefix)
+    }
+}
+
+#[cfg(feature = "redis-support")]
+impl LeaseStorage for RedisLeaseStorage {
+    fn save(&self, lease: &Lease) -> anyhow::Result<()> {
+        let mut conn = self.client.get_connection()
+            .map_err(|e| anyhow::anyhow!("Redis connection error: {}", e))?;
+        
+        let key = self.lease_key(&lease.id);
+        let value = serde_json::to_string(lease)?;
+        
+        // 使用 SETEX 设置带过期时间的键
+        let ttl = lease.remaining().as_secs() as i64 + 60; // 额外 60s 缓冲
+        let _: () = redis::cmd("SET")
+            .arg(&key)
+            .arg(&value)
+            .arg("EX")
+            .arg(ttl)
+            .query(&mut conn)
+            .map_err(|e| anyhow::anyhow!("Redis SET error: {}", e))?;
+        
+        // 添加到列表
+        let _: () = redis::cmd("SADD")
+            .arg(self.list_key())
+            .arg(&lease.id)
+            .query(&mut conn)
+            .map_err(|e| anyhow::anyhow!("Redis SADD error: {}", e))?;
+        
+        Ok(())
+    }
+    
+    fn get(&self, id: &str) -> anyhow::Result<Option<Lease>> {
+        let mut conn = self.client.get_connection()
+            .map_err(|e| anyhow::anyhow!("Redis connection error: {}", e))?;
+        
+        let key = self.lease_key(id);
+        
+        let value: Option<String> = redis::cmd("GET")
+            .arg(&key)
+            .query(&mut conn)
+            .map_err(|e| anyhow::anyhow!("Redis GET error: {}", e))?;
+        
+        match value {
+            Some(json) => {
+                let lease: Lease = serde_json::from_str(&json)?;
+                Ok(Some(lease))
+            }
+            None => Ok(None),
+        }
+    }
+    
+    fn delete(&self, id: &str) -> anyhow::Result<()> {
+        let mut conn = self.client.get_connection()
+            .map_err(|e| anyhow::anyhow!("Redis connection error: {}", e))?;
+        
+        let key = self.lease_key(id);
+        
+        let _: () = redis::cmd("DEL")
+            .arg(&key)
+            .query(&mut conn)
+            .map_err(|e| anyhow::anyhow!("Redis DEL error: {}", e))?;
+        
+        // 从列表中移除
+        let _: () = redis::cmd("SREM")
+            .arg(self.list_key())
+            .arg(id)
+            .query(&mut conn)
+            .map_err(|e| anyhow::anyhow!("Redis SREM error: {}", e))?;
+        
+        Ok(())
+    }
+    
+    fn list(&self) -> anyhow::Result<Vec<Lease>> {
+        let mut conn = self.client.get_connection()
+            .map_err(|e| anyhow::anyhow!("Redis connection error: {}", e))?;
+        
+        // 获取所有租约 ID
+        let ids: Vec<String> = redis::cmd("SMEMBERS")
+            .arg(self.list_key())
+            .query(&mut conn)
+            .map_err(|e| anyhow::anyhow!("Redis SMEMBERS error: {}", e))?;
+        
+        let mut leases = Vec::new();
+        for id in ids {
+            if let Some(lease) = self.get(&id)? {
+                // 只返回有效的租约
+                if lease.is_valid() {
+                    leases.push(lease);
+                } else {
+                    // 清理过期租约
+                    self.delete(&id)?;
+                }
+            }
+        }
+        
+        Ok(leases)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

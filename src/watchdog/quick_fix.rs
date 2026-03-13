@@ -33,6 +33,11 @@ impl QuickFixExecutor {
         self
     }
     
+    /// 获取服务名称
+    pub fn service_name(&self) -> &str {
+        &self.service_name
+    }
+    
     /// 重启服务（通过 systemd）
     pub async fn restart_service(&self) -> Result<String> {
         tracing::info!("Restarting service: {}", self.service_name);

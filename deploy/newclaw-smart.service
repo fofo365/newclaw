@@ -10,7 +10,7 @@ Type=simple
 User=newclaw
 Group=newclaw
 WorkingDirectory=/opt/newclaw
-ExecStart=/opt/newclaw/newclaw gateway
+ExecStart=/opt/newclaw/newclaw-smart --watchdog-addr http://127.0.0.1:50051 --port 3000
 Restart=on-failure
 RestartSec=10
 

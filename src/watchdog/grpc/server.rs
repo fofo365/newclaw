@@ -15,6 +15,7 @@ use proto::{
     heartbeat_service_server::{HeartbeatService, HeartbeatServiceServer},
     lease_service_server::{LeaseService, LeaseServiceServer},
     health_check_service_server::{HealthCheckService, HealthCheckServiceServer},
+    recovery_service_server::{RecoveryService, RecoveryServiceServer},
     *,
 };
 
@@ -39,6 +40,7 @@ impl WatchdogGrpcServer {
         Server::builder()
             .add_service(HeartbeatServiceServer::new(self.clone()))
             .add_service(LeaseServiceServer::new(self.clone()))
+            .add_service(RecoveryServiceServer::new(self.clone()))
             .add_service(HealthCheckServiceServer::new(self))
             .serve(addr)
             .await?;
@@ -241,6 +243,117 @@ impl HealthCheckService for WatchdogGrpcServer {
             ready,
             checks,
             message: if ready { "Ready" } else { "Not ready" }.to_string(),
+        }))
+    }
+}
+
+/// 恢复服务实现
+#[tonic::async_trait]
+impl RecoveryService for WatchdogGrpcServer {
+    async fn trigger_recovery(
+        &self,
+        request: Request<TriggerRecoveryRequest>,
+    ) -> Result<Response<RecoveryResponse>, Status> {
+        let req = request.into_inner();
+        
+        // 解析恢复级别
+        let level = match RecoveryLevel::try_from(req.level) {
+            Ok(RecoveryLevel::L1QuickFix) => {
+                crate::watchdog::recovery::RecoveryLevel::L1QuickFix
+            }
+            Ok(RecoveryLevel::L2AiDiagnosis) => {
+                crate::watchdog::recovery::RecoveryLevel::L2AiDiagnosis
+            }
+            Ok(RecoveryLevel::L3HumanIntervention) => {
+                crate::watchdog::recovery::RecoveryLevel::L3HumanIntervention
+            }
+            _ => crate::watchdog::recovery::RecoveryLevel::L1QuickFix,
+        };
+        
+        // 生成恢复计划
+        let plan = crate::watchdog::recovery::RecoveryExecutor::generate_l1_plan(
+            req.component.clone(),
+            req.actions,
+        );
+        
+        let recovery_id = plan.id.clone();
+        let recovery_id_for_spawn = recovery_id.clone();
+        let estimated_duration = match level {
+            crate::watchdog::recovery::RecoveryLevel::L1QuickFix => 1,
+            crate::watchdog::recovery::RecoveryLevel::L2AiDiagnosis => 30,
+            crate::watchdog::recovery::RecoveryLevel::L3HumanIntervention => 300,
+        };
+        
+        // 触发异步恢复
+        let controller = self.controller.clone();
+        let plan_clone = plan;
+        tokio::spawn(async move {
+            let audit_log = crate::watchdog::audit::AuditLogger::new(
+                crate::watchdog::config::AuditConfig::default()
+            );
+            let executor = crate::watchdog::recovery::RecoveryExecutor::new(audit_log);
+            
+            match executor.execute(plan_clone).await {
+                Ok(result) => {
+                    tracing::info!("Recovery {} completed: success={}", recovery_id_for_spawn, result.success);
+                }
+                Err(e) => {
+                    tracing::error!("Recovery {} failed: {}", recovery_id_for_spawn, e);
+                }
+            }
+        });
+        
+        Ok(Response::new(RecoveryResponse {
+            accepted: true,
+            recovery_id,
+            level: req.level,
+            estimated_duration,
+        }))
+    }
+    
+    async fn get_recovery_status(
+        &self,
+        request: Request<GetRecoveryRequest>,
+    ) -> Result<Response<RecoveryStatus>, Status> {
+        let req = request.into_inner();
+        
+        // TODO: 实现持久化的恢复状态查询
+        // 目前返回模拟数据
+        Ok(Response::new(RecoveryStatus {
+            recovery_id: req.recovery_id,
+            level: RecoveryLevel::L1QuickFix.into(),
+            state: RecoveryState::Succeeded.into(),
+            started_at: chrono::Utc::now().timestamp_millis() - 1000,
+            completed_at: chrono::Utc::now().timestamp_millis(),
+            actions: vec![RecoveryAction {
+                name: "restart_service".to_string(),
+                description: "Restart the service".to_string(),
+                state: RecoveryState::Succeeded.into(),
+                started_at: chrono::Utc::now().timestamp_millis() - 1000,
+                completed_at: chrono::Utc::now().timestamp_millis(),
+                output: "Service restarted successfully".to_string(),
+                error: String::new(),
+            }],
+            result: "Recovery completed successfully".to_string(),
+        }))
+    }
+    
+    async fn acknowledge_recovery(
+        &self,
+        request: Request<AcknowledgeRecoveryRequest>,
+    ) -> Result<Response<AcknowledgeRecoveryResponse>, Status> {
+        let req = request.into_inner();
+        
+        tracing::info!(
+            "Recovery {} acknowledged by {}: {}",
+            req.recovery_id,
+            req.acknowledged_by,
+            req.notes
+        );
+        
+        Ok(Response::new(AcknowledgeRecoveryResponse {
+            success: true,
+            message: "Recovery acknowledged".to_string(),
         }))
     }
 }
