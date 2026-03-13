@@ -5,6 +5,10 @@
 // 2. 环境变量覆盖
 // 3. 默认值
 // 4. GLM 多区域支持
+// 5. v0.7.0: 6 层配置架构
+
+// v0.7.0: 6 层配置系统
+pub mod layers;
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;

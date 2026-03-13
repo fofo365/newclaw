@@ -4,6 +4,7 @@
 //! 支持序列化、断点续传、跨设备迁移
 
 mod session;
+pub mod dag;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -681,4 +682,10 @@ mod tests {
 pub use session::{
     Session, SessionId, SessionState, SessionConfig, SessionStats,
     SessionManager, FocusChain,
+};
+
+// Re-export DAG types
+pub use dag::{
+    DagNode, DagNodeState, DagNodeResult, DagWorkflow, DagWorkflowState,
+    DagBuilder, DagExecutor, DagExecutorConfig, DagExecutionResult, DagCheckpoint,
 };
