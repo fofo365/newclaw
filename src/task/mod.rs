@@ -3,6 +3,8 @@
 //! Task 是核心抽象，Session 是 Task 的视图
 //! 支持序列化、断点续传、跨设备迁移
 
+mod session;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -674,3 +676,9 @@ mod tests {
         assert_eq!(summary.final_state, TaskState::Completed);
     }
 }
+
+// Re-export session types
+pub use session::{
+    Session, SessionId, SessionState, SessionConfig, SessionStats,
+    SessionManager, FocusChain,
+};
