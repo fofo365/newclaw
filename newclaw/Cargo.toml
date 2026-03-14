@@ -63,6 +63,12 @@ rand = "0.8"
 # Base64 encoding (for QQ Bot media)
 base64 = "0.21"
 
+# SQLite for audit persistence
+rusqlite = { version = "0.30", features = ["bundled"] }
+
+# CSV export
+csv = "1.3"
+
 [dev-dependencies]
 tokio-test = "0.4"
 mockall = "0.12"

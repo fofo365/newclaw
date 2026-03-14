@@ -8,6 +8,7 @@
 // - Task Scheduling (Cron, Delayed Queue, Event Triggers)
 // - NamingEngine Matching Engine
 // - ABAC Permission Engine (Attribute-Based Access Control)
+// - Audit Query Engine (Persistent Storage, Advanced Query, Statistics, Alerting)
 // - Tool Execution Layer (reliable tool calls)
 // - Local Model Support (Ollama integration)
 // - Feishu Integration (enterprise IM)
@@ -21,6 +22,7 @@ pub mod model;
 pub mod integration;
 pub mod channel;
 pub mod abac;
+pub mod audit;
 
 // Re-exports from config module
 pub use config::{
@@ -46,6 +48,25 @@ pub use abac::{
     // Decision types
     Advice, AuditEntry, AuditLog, AuditStats, Decision, DecisionEngine, DecisionEngineBuilder,
     DecisionReason, DecisionResult, Obligation,
+};
+
+// Re-exports from audit module
+pub use audit::{
+    // Core types
+    AuditEntry as PersistentAuditEntry, AuditEvent, AuditError, AuditResult,
+    DecisionAudit, TaskAudit, ConfigAudit, SystemAudit, CustomAudit,
+    // Store
+    AuditStore, AuditStoreError, RotationConfig,
+};
+pub use audit::store::{ArchiveInfo, RotationStats};
+pub use audit::query::{AuditQueryBuilder, AuditQuery, AuditFilter, SortOrder, Pagination, AuditQueryResult};
+pub use audit::report::{
+    AuditReporter, AuditReport, AuditStatistics, ExportFormat,
+    DecisionStatistics, TaskStatistics, ConfigStatistics, SystemStatistics,
+};
+pub use audit::alert::{
+    AlertRule, AlertManager, AlertCondition, AlertAction, AlertSeverity, TriggeredAlert,
+    PatternStep, NotificationHandler,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
