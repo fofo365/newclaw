@@ -70,6 +70,9 @@ quick-xml = { version = "0.37", features = ["serialize"] }
 # Regex
 regex = "1.11"
 
+# Cron scheduling (v0.7.0 - task scheduling)
+cron = "0.13"
+
 # Web framework
 axum = "0.8"
 tower = "0.5"

@@ -2,9 +2,17 @@
 //!
 //! Task 是核心抽象，Session 是 Task 的视图
 //! 支持序列化、断点续传、跨设备迁移
+//!
+//! v0.7.0 新增：
+//! - Cron 调度器 (scheduler)
+//! - 延迟任务队列 (delayed_queue)
+//! - 事件触发器 (event_trigger)
 
 mod session;
 pub mod dag;
+pub mod scheduler;
+pub mod delayed_queue;
+pub mod event_trigger;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -688,4 +696,23 @@ pub use session::{
 pub use dag::{
     DagNode, DagNodeState, DagNodeResult, DagWorkflow, DagWorkflowState,
     DagBuilder, DagExecutor, DagExecutorConfig, DagExecutionResult, DagCheckpoint,
+};
+
+// Re-export scheduler types (v0.7.0)
+pub use scheduler::{
+    ScheduleId, ScheduledTask, TaskScheduler, CronExpression, CronField,
+    CronParseError, TaskExecutor, FnTaskExecutor,
+};
+
+// Re-export delayed queue types (v0.7.0)
+pub use delayed_queue::{
+    DelayedTaskId, DelayedTask, DelayedTaskState, DelayedQueue,
+    DelayedQueueStats,
+};
+
+// Re-export event trigger types (v0.7.0)
+pub use event_trigger::{
+    EventId, Event, EventType, EventPattern,
+    TriggerId, EventTrigger, PropagationRule,
+    EventTriggerManager, EventTriggerStats,
 };
