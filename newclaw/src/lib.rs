@@ -7,6 +7,7 @@
 // - DAG Workflow Engine
 // - Task Scheduling (Cron, Delayed Queue, Event Triggers)
 // - NamingEngine Matching Engine
+// - ABAC Permission Engine (Attribute-Based Access Control)
 // - Tool Execution Layer (reliable tool calls)
 // - Local Model Support (Ollama integration)
 // - Feishu Integration (enterprise IM)
@@ -19,6 +20,7 @@ pub mod provider;
 pub mod model;
 pub mod integration;
 pub mod channel;
+pub mod abac;
 
 // Re-exports from config module
 pub use config::{
@@ -28,6 +30,22 @@ pub use config::{
     ConfigNotificationManager, ConfigChangeEvent, ConfigSubscriber,
     ConfigLayer, ConfigScope, LayeredConfig,
     ConfigMerger, ConfigContext,
+};
+
+// Re-exports from abac module
+pub use abac::{
+    // Attribute types
+    Attribute, AttributeBag, AttributeCategory, AttributeError, AttributeResolver,
+    AttributeValue, AttributeValueType, CompositeAttributeResolver, StaticAttributeResolver,
+    // Policy types
+    Condition, ConditionOperator, Effect, LogicalOperator, Policy, PolicyCombiningAlgorithm,
+    PolicyError, PolicySet, Rule,
+    // Evaluator types
+    AuthzRequest, EvaluationResult, PolicyEvaluator, PolicyEvaluatorBuilder, PolicyMatch,
+    PolicyMatcher,
+    // Decision types
+    Advice, AuditEntry, AuditLog, AuditStats, Decision, DecisionEngine, DecisionEngineBuilder,
+    DecisionReason, DecisionResult, Obligation,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
