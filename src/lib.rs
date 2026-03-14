@@ -76,6 +76,9 @@ pub mod smart_controller;
 // v0.7.0 - Task System (任务流原生架构)
 pub mod task;
 
+// v0.7.0 P1 - Federated Memory (联邦记忆)
+pub mod federated;
+
 // Re-export main types
 pub use core::AgentEngine;
 pub use core::{ContextManager, ContextConfig, ContextChunk};
