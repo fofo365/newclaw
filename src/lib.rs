@@ -1,5 +1,5 @@
 // NewClaw - Next-gen AI Agent framework
-// Version: 0.6.1
+// Version: 0.7.0
 
 // Allow some warnings for now (WIP code)
 #![allow(dead_code)]
