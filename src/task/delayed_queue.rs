@@ -772,7 +772,9 @@ mod tests {
             id: task2.id,
         };
         
-        // t2 应该先执行（延迟更短）
-        assert!(t2 < t1);
+        // t2 延迟更短（5秒 vs 10秒），应该先执行
+        // 在 BinaryHeap 中，t2 应该是"更大"的（堆顶）
+        assert!(t2 > t1);
+        assert!(t1 < t2);
     }
 }

@@ -2,10 +2,7 @@ version: '3.8'
 
 services:
   newclaw:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: newclaw:0.5.4
+    image: newclaw/newclaw:v0.7.0
     container_name: newclaw-gateway
     restart: unless-stopped
     ports:
@@ -19,6 +16,7 @@ services:
     volumes:
       - newclaw-data:/var/lib/newclaw
       - newclaw-logs:/var/log/newclaw
+      - ./config/production.toml:/etc/newclaw/config.toml:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -93,24 +91,24 @@ services:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
 
-  grafana:
-    image: grafana/grafana:10.2.0
-    container_name: newclaw-grafana
-    restart: unless-stopped
-    ports:
-      - "3001:3000"
-    environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_USERS_ALLOW_SIGN_UP=false
-    volumes:
-      - grafana-data:/var/lib/grafana
-      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources:ro
-    networks:
-      - newclaw-network
-    depends_on:
-      - prometheus
+  #  grafana:
+#    image: grafana/grafana:10.2.0
+#    container_name: newclaw-grafana
+#    restart: unless-stopped
+#    ports:
+#      - "3001:3000"
+#    environment:
+#      - GF_SECURITY_ADMIN_USER=admin
+#      - GF_SECURITY_ADMIN_PASSWORD=admin
+#      - GF_USERS_ALLOW_SIGN_UP=false
+#    volumes:
+#      - grafana-data:/var/lib/grafana
+#      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+#      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+#    networks:
+#      - newclaw-network
+#    depends_on:
+#      - prometheus
 
 networks:
   newclaw-network:

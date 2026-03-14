@@ -938,8 +938,10 @@ mod tests {
         assert!(EventPattern::Wildcard("*".to_string()).matches(""));
         assert!(EventPattern::Wildcard("*".to_string()).matches("anything"));
         
-        // 多个 *
+        // 多个 * - * 可以匹配空字符串
         assert!(EventPattern::Wildcard("a*b*c".to_string()).matches("a123b456c"));
-        assert!(!EventPattern::Wildcard("a*b*c".to_string()).matches("abc"));
+        assert!(EventPattern::Wildcard("a*b*c".to_string()).matches("abc")); // * 匹配空字符串
+        assert!(EventPattern::Wildcard("a*b*c".to_string()).matches("axbxc"));
+        assert!(!EventPattern::Wildcard("a*b*c".to_string()).matches("abd")); // 没有 c
     }
 }
