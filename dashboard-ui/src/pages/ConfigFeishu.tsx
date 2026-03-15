@@ -62,9 +62,16 @@ export default function ConfigFeishu() {
     try {
       const values = await editForm.validateFields()
       
-      // 更新配置
-      const newConfig = { ...config, ...values }
-      await updateFeishuConfig(newConfig)
+      // 只发送当前编辑的字段，不发送其他掩码值
+      const updatePayload: Partial<FeishuConfig> = {}
+      if (editingField) {
+        updatePayload[editingField] = values[editingField]
+      }
+      
+      // 同时发送连接模式
+      updatePayload.connection_mode = form.getFieldValue('connection_mode')
+      
+      await updateFeishuConfig(updatePayload)
       
       message.success('配置已更新')
       setEditModalVisible(false)
