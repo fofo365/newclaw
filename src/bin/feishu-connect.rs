@@ -1,11 +1,147 @@
 // NewClaw 飞书 WebSocket 长连接服务
 //
-// 独立服务，用于接收飞书消息并通过内部通道转发给 Gateway
+// 独立服务，用于接收飞书消息并调用 LLM 回复
 
 use anyhow::Result;
 use tracing::{info, error, warn};
 use std::sync::Arc;
 use chrono::Utc;
+use async_trait::async_trait;
+use serde_json::json;
+
+use newclaw::feishu_websocket::{
+    EventHandler, FeishuEvent, WebSocketError, WebSocketResult,
+    MessageSender, TextMessage, ReceiveIdType,
+};
+
+/// 智能 LLM 事件处理器
+struct LLMEventHandler {
+    /// 消息发送器
+    sender: MessageSender,
+    /// GLM API Key
+    api_key: String,
+    /// GLM 模型
+    model: String,
+}
+
+impl LLMEventHandler {
+    fn new(api_key: String, model: String) -> Self {
+        let sender = MessageSender::new("https://open.feishu.cn");
+        Self { sender, api_key, model }
+    }
+    
+    /// 调用 GLM 生成回复
+    async fn call_llm(&self, prompt: &str) -> Result<String> {
+        let client = reqwest::Client::new();
+        let url = "https://api.z.ai/api/paas/v4/chat/completions";
+        
+        let response = client
+            .post(url)
+            .header("Content-Type", "application/json")
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(&json!({
+                "model": self.model,
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.7,
+                "max_tokens": 1024,
+            }))
+            .send()
+            .await?;
+        
+        let json: serde_json::Value = response.json().await?;
+        
+        let content = json["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("抱歉，我无法生成回复。")
+            .to_string();
+        
+        Ok(content)
+    }
+    
+    /// 获取 access_token 并发送回复
+    async fn reply_message(&self, chat_id: &str, text: &str, app_id: &str, app_secret: &str) {
+        // 获取 access_token
+        let token = match fetch_access_token(app_id, app_secret).await {
+            Ok((t, _)) => t,
+            Err(e) => {
+                error!("获取 access_token 失败: {}", e);
+                return;
+            }
+        };
+        
+        // 创建带 token 的发送器
+        let sender = MessageSender::new("https://open.feishu.cn").with_token(&token);
+        
+        // 发送消息
+        match sender.send_simple_text(chat_id, text).await {
+            Ok(msg_id) => info!("消息已发送: {}", msg_id),
+            Err(e) => error!("发送消息失败: {:?}", e),
+        }
+    }
+}
+
+#[async_trait]
+impl EventHandler for LLMEventHandler {
+    async fn handle(&self, event: FeishuEvent) -> WebSocketResult<()> {
+        match &event {
+            FeishuEvent::MessageReceived { app_id, open_id, chat_id, content, .. } => {
+                info!("收到消息 - 用户: {}, 群: {}, 内容: {}", open_id, chat_id, content);
+                
+                // 解析消息内容
+                let text = if let Ok(json) = serde_json::from_str::<serde_json::Value>(content) {
+                    json.get("text")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or(content)
+                        .to_string()
+                } else {
+                    content.clone()
+                };
+                
+                // 跳过空消息
+                if text.trim().is_empty() {
+                    return Ok(());
+                }
+                
+                info!("处理消息: {}", text);
+                
+                // 调用 LLM 生成回复
+                match self.call_llm(&text).await {
+                    Ok(reply) => {
+                        info!("LLM 回复: {}", reply);
+                        // 发送回复
+                        self.reply_message(chat_id, &reply, app_id, "zYNommBXUXSDzUaULXUfMhBJKjK6LyAZ").await;
+                    }
+                    Err(e) => {
+                        error!("LLM 调用失败: {}", e);
+                        // 发送错误提示
+                        self.reply_message(chat_id, "抱歉，我遇到了一些问题，请稍后再试。", app_id, "zYNommBXUXSDzUaULXUfMhBJKjK6LyAZ").await;
+                    }
+                }
+            }
+            _ => {
+                info!("忽略事件: {:?}", event);
+            }
+        }
+        Ok(())
+    }
+    
+    async fn on_connect(&self, app_id: &str) -> WebSocketResult<()> {
+        info!("✅ 连接成功: {}", app_id);
+        Ok(())
+    }
+    
+    async fn on_disconnect(&self, app_id: &str) -> WebSocketResult<()> {
+        warn!("⚠️ 连接断开: {}", app_id);
+        Ok(())
+    }
+    
+    async fn on_error(&self, app_id: &str, error: &WebSocketError) -> WebSocketResult<()> {
+        error!("❌ 错误 [{}]: {:?}", app_id, error);
+        Ok(())
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -29,6 +165,17 @@ async fn main() -> Result<()> {
     }
 
     info!("找到 {} 个飞书账号配置", config.feishu.accounts.len());
+
+    // 获取 GLM API Key
+    let api_key = config.llm.glm.api_key.clone()
+        .or_else(|| std::env::var("GLM_API_KEY").ok())
+        .unwrap_or_else(|| {
+            warn!("未配置 GLM API Key，将无法调用 LLM");
+            String::new()
+        });
+    
+    let model = config.llm.model.clone();
+    info!("使用模型: {}", model);
 
     // 检查并刷新过期的token
     for (account_name, account_config) in &config.feishu.accounts {
@@ -62,7 +209,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    // 创建 WebSocket 管理器（使用默认事件处理器）
+    // 创建 WebSocket 管理器（使用 LLM 事件处理器）
     let ws_config = newclaw::feishu_websocket::WebSocketConfig {
         base_url: "https://open.feishu.cn/open-apis".to_string(),
         app_id: String::new(),
@@ -78,7 +225,7 @@ async fn main() -> Result<()> {
         log_level: newclaw::feishu_websocket::LogLevel::Info,
     };
 
-    let event_handler = Arc::new(newclaw::feishu_websocket::event::DefaultEventHandler);
+    let event_handler = Arc::new(LLMEventHandler::new(api_key, model));
     let manager = Arc::new(newclaw::feishu_websocket::FeishuWebSocketManager::new(ws_config, event_handler));
 
     // 启动管理器

@@ -664,6 +664,9 @@ pub struct MessageSender {
     
     /// 基础 URL
     base_url: String,
+    
+    /// Access Token
+    access_token: Option<String>,
 }
 
 impl MessageSender {
@@ -671,7 +674,14 @@ impl MessageSender {
         Self {
             client: reqwest::Client::new(),
             base_url: base_url.into(),
+            access_token: None,
         }
+    }
+    
+    /// 设置 Access Token
+    pub fn with_token(mut self, token: impl Into<String>) -> Self {
+        self.access_token = Some(token.into());
+        self
     }
     
     /// 发送文本消息
@@ -724,6 +734,12 @@ impl MessageSender {
         self.send_message(receive_id, receive_id_type, message.base).await
     }
     
+    /// 发送简单文本消息（便捷方法）
+    pub async fn send_simple_text(&self, chat_id: &str, text: &str) -> WebSocketResult<String> {
+        let message = TextMessage::new(text);
+        self.send_text(chat_id, ReceiveIdType::ChatId, message).await
+    }
+    
     /// 通用消息发送
     async fn send_message(
         &self,
@@ -731,14 +747,45 @@ impl MessageSender {
         receive_id_type: ReceiveIdType,
         base: BaseMessage,
     ) -> WebSocketResult<String> {
-        let url = format!("{}/open-apis/im/v1/messages", self.base_url);
+        let url = format!("{}/open-apis/im/v1/messages?receive_id_type={}", 
+            self.base_url, receive_id_type.as_str());
         
-        let mut params = [("receive_id", receive_id.to_string()),
-            ("receive_id_type", receive_id_type.as_str().to_string())];
+        // 构建请求体
+        let body = serde_json::json!({
+            "receive_id": receive_id,
+            "msg_type": base.msg_type.as_str(),
+            "content": base.content,
+        });
         
-        // 这里应该调用实际的飞书 API
-        // 暂时返回模拟的消息 ID
-        let message_id = uuid::Uuid::new_v4().to_string();
+        // 发送请求
+        let mut request = self.client.post(&url)
+            .header("Content-Type", "application/json");
+        
+        if let Some(ref token) = self.access_token {
+            request = request.header("Authorization", format!("Bearer {}", token));
+        }
+        
+        let response = request.json(&body).send().await
+            .map_err(|e| WebSocketError::WebSocket(e.to_string()))?;
+        
+        let status = response.status();
+        let text = response.text().await
+            .map_err(|e| WebSocketError::WebSocket(e.to_string()))?;
+        
+        if !status.is_success() {
+            return Err(WebSocketError::WebSocket(format!(
+                "Failed to send message: {} - {}", status, text
+            )));
+        }
+        
+        // 解析响应获取消息ID
+        let json: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| WebSocketError::Serialization(e.to_string()))?;
+        
+        let message_id = json["data"]["message_id"]
+            .as_str()
+            .unwrap_or(&uuid::Uuid::new_v4().to_string())
+            .to_string();
         
         Ok(message_id)
     }
