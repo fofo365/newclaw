@@ -11,6 +11,9 @@ import MonitorMetrics from './pages/MonitorMetrics'
 import Chat from './pages/Chat'
 import AdminUsers from './pages/AdminUsers'
 import AdminApiKeys from './pages/AdminApiKeys'
+import Tasks from './pages/Tasks'
+import Memory from './pages/Memory'
+import Audit from './pages/Audit'
 
 // 路由保护组件
 function ProtectedRoute() {
@@ -42,6 +45,10 @@ function App() {
                 <Route path="users" element={<AdminUsers />} />
                 <Route path="apikeys" element={<AdminApiKeys />} />
               </Route>
+              {/* v0.7.0 新增页面 */}
+              <Route path="tasks" element={<Tasks />} />
+              <Route path="memory" element={<Memory />} />
+              <Route path="audit" element={<Audit />} />
             </Route>
           </Route>
         </Routes>

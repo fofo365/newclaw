@@ -1,10 +1,13 @@
-// NewClaw v0.4.0 - Dashboard Module
+// NewClaw v0.7.0 - Dashboard Module
 //
 // Dashboard 提供 Web UI 用于：
 // 1. 配置管理（LLM、工具、飞书）
 // 2. 监控面板（日志、指标、告警）
 // 3. 对话界面（聊天、调试）
 // 4. 管理功能（用户、权限、API Key）
+// 5. 任务管理（任务、DAG、调度）
+// 6. 记忆管理（存储、搜索、联邦）
+// 7. 审计日志（查询、统计）
 
 pub mod config_api;
 pub mod monitor;
@@ -13,6 +16,9 @@ pub mod admin;
 pub mod metrics;
 pub mod session;
 pub mod auth;
+pub mod tasks;
+pub mod memory;
+pub mod audit;
 
 use axum::{
     Router,
@@ -543,6 +549,40 @@ pub fn create_dashboard_router(state: Arc<DashboardState>) -> Router {
         .route("/api/admin/apikeys", get(admin::list_api_keys))
         .route("/api/admin/apikeys", post(admin::create_api_key))
         .route("/api/admin/apikeys/{id}", delete(admin::revoke_api_key))
+
+        // 任务管理 API（v0.7.0）
+        .route("/api/tasks", get(tasks::list_tasks))
+        .route("/api/tasks", post(tasks::create_task))
+        .route("/api/tasks/{id}", get(tasks::get_task))
+        .route("/api/tasks/{id}/cancel", post(tasks::cancel_task))
+
+        // DAG 工作流 API（v0.7.0）
+        .route("/api/dags", get(tasks::list_dags))
+        .route("/api/dags", post(tasks::create_dag))
+        .route("/api/dags/{id}", get(tasks::get_dag_status))
+        .route("/api/dags/{id}/run", post(tasks::run_dag))
+
+        // 调度任务 API（v0.7.0）
+        .route("/api/schedules", get(tasks::list_schedules))
+        .route("/api/schedules", post(tasks::create_schedule))
+        .route("/api/schedules/{id}", delete(tasks::delete_schedule))
+
+        // 记忆管理 API（v0.7.0）
+        .route("/api/memories", get(memory::list_memories))
+        .route("/api/memories", post(memory::store_memory))
+        .route("/api/memories/search", post(memory::search_memory))
+        .route("/api/memories/{id}", get(memory::get_memory))
+        .route("/api/memories/{id}", delete(memory::delete_memory))
+
+        // 联邦管理 API（v0.7.0）
+        .route("/api/federation/status", get(memory::get_federation_status))
+        .route("/api/federation/sync", post(memory::sync_memories))
+
+        // 审计日志 API（v0.7.0）
+        .route("/api/audit/logs", get(audit::query_audit_logs))
+        .route("/api/audit/logs/{id}", get(audit::get_audit_log))
+        .route("/api/audit/stats", get(audit::get_audit_stats))
+        .route("/api/audit/export", get(audit::export_audit_logs))
 
         // Prometheus 指标端点 (v0.5.5) - 无需认证
         .route("/metrics", get(prometheus_metrics))

@@ -11,6 +11,9 @@ import {
   ApiOutlined,
   CloudOutlined,
   FileTextOutlined,
+  ScheduleOutlined,
+  DatabaseOutlined,
+  SecurityScanOutlined,
 } from '@ant-design/icons'
 
 const { Header, Sider, Content } = Layout
@@ -44,6 +47,21 @@ const menuItems = [
     key: '/chat',
     icon: <MessageOutlined />,
     label: '对话测试',
+  },
+  {
+    key: '/tasks',
+    icon: <ScheduleOutlined />,
+    label: '任务管理',
+  },
+  {
+    key: '/memory',
+    icon: <DatabaseOutlined />,
+    label: '记忆管理',
+  },
+  {
+    key: '/audit',
+    icon: <SecurityScanOutlined />,
+    label: '审计日志',
   },
   {
     key: '/admin',
@@ -131,7 +149,7 @@ export default function MainLayout() {
           alignItems: 'center',
           justifyContent: 'space-between',
         }}>
-          <h2 style={{ margin: 0 }}>NewClaw Dashboard v0.4.0</h2>
+          <h2 style={{ margin: 0 }}>NewClaw Dashboard v0.7.0</h2>
           <span style={{ color: '#666' }}>飞书 AI Agent 管理平台</span>
         </Header>
         <Content style={{ margin: '24px 16px', padding: 24, background: colorBgContainer, minHeight: 280, borderRadius: 8 }}>
