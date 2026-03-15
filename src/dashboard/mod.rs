@@ -765,6 +765,9 @@ pub async fn start_dashboard(config: DashboardConfig) -> anyhow::Result<()> {
     // 初始化 Prometheus 指标
     crate::metrics::prometheus::init_metrics();
 
+    // 默认配置文件路径
+    let default_config_path = std::path::PathBuf::from("/etc/newclaw/config.toml");
+
     // 尝试从配置文件初始化
     let state = if let Ok(config_path) = std::env::var("NEWCLAW_CONFIG") {
         let path = std::path::PathBuf::from(config_path);
@@ -775,12 +778,28 @@ pub async fn start_dashboard(config: DashboardConfig) -> anyhow::Result<()> {
             }
             Err(e) => {
                 tracing::warn!("Failed to load config from {}: {}, creating default state", path.display(), e);
-                Arc::new(DashboardState::new(config.clone()))
+                let mut state = DashboardState::new(config.clone());
+                state.config_path = Some(path);
+                Arc::new(state)
+            }
+        }
+    } else if default_config_path.exists() {
+        // 尝试加载默认配置文件
+        match DashboardState::from_config_file(config.clone(), &default_config_path) {
+            Ok(state) => {
+                tracing::info!("Loaded config from default path: {}", default_config_path.display());
+                Arc::new(state)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load config from {}: {}", default_config_path.display(), e);
+                let mut state = DashboardState::new(config.clone());
+                state.config_path = Some(default_config_path);
+                Arc::new(state)
             }
         }
     } else {
         // 尝试从环境变量初始化 LLM Provider
-        if let Ok(api_key) = std::env::var("GLM_API_KEY") {
+        let mut state = if let Ok(api_key) = std::env::var("GLM_API_KEY") {
             tracing::info!("Found GLM_API_KEY, initializing LLM provider");
             let llm_config = crate::config::LLMConfig {
                 provider: "glm".to_string(),
@@ -802,12 +821,17 @@ pub async fn start_dashboard(config: DashboardConfig) -> anyhow::Result<()> {
                 openai: Default::default(),
                 claude: Default::default(),
             };
-
-            Arc::new(DashboardState::with_llm(config.clone(), llm_config)?)
+            DashboardState::with_llm(config.clone(), llm_config)?
         } else {
             tracing::warn!("No GLM_API_KEY found, starting Dashboard without LLM support");
-            Arc::new(DashboardState::new(config.clone()))
-        }
+            DashboardState::new(config.clone())
+        };
+
+        // 重要：设置默认配置文件路径，确保飞书配置可以保存
+        state.config_path = Some(default_config_path.clone());
+        tracing::info!("Config will be saved to: {}", default_config_path.display());
+
+        Arc::new(state)
     };
 
     // 初始化内置工具
