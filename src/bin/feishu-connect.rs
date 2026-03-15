@@ -31,7 +31,7 @@ async fn main() -> Result<()> {
 
     // 创建 WebSocket 管理器（使用默认事件处理器）
     let ws_config = newclaw::feishu_websocket::WebSocketConfig {
-        base_url: "wss://open.feishu.cn/open-apis/ws/v2".to_string(),
+        base_url: "https://open.feishu.cn/open-apis".to_string(),
         app_id: String::new(),
         app_secret: String::new(),
         heartbeat_interval: std::time::Duration::from_secs(30),

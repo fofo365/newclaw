@@ -43,7 +43,7 @@ use std::time::Duration;
 /// WebSocket 配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebSocketConfig {
-    /// 基础 URL
+    /// API 基础 URL (用于获取 token 和 WebSocket URL)
     pub base_url: String,
     
     /// 应用 ID

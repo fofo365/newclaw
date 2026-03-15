@@ -229,20 +229,25 @@ impl FeishuWebSocketManager {
             .to_string();
         
         // 第二步：获取 WebSocket URL
+        // 注意：这个 API 需要在请求头中携带 Authorization
         let ws_url_url = format!("{}/v1.3/cn/copilot/realtime/create_tcp", self.config.base_url);
-        
-        let ws_request_body = json!({
-            "tenant_access_token": access_token,
-        });
         
         let ws_response = client
             .post(&ws_url_url)
             .header("Content-Type", "application/json; charset=utf-8")
-            .json(&ws_request_body)
+            .header("Authorization", format!("Bearer {}", access_token))
+            .json(&json!({}))
             .send()
             .await?;
         
-        let ws_json: serde_json::Value = ws_response.json().await?;
+        let ws_response_status = ws_response.status();
+        let ws_response_text = ws_response.text().await?;
+        
+        info!("WebSocket API response status: {}", ws_response_status);
+        debug!("WebSocket API response body: {}", ws_response_text);
+        
+        let ws_json: serde_json::Value = serde_json::from_str(&ws_response_text)
+            .map_err(|e| WebSocketError::AuthFailed(format!("Invalid JSON response: {}", e)))?;
         
         if ws_json["code"].as_i64() != Some(0) {
             return Err(WebSocketError::AuthFailed(format!(
