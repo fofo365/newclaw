@@ -482,7 +482,7 @@ fn print_providers() {
 
 /// 打印帮助
 fn print_help() {
-    println!("\n📖 Commands:");
+    println!("\n📖 Interactive Mode Commands (v0.7.0):");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!("  help      - Show this help message");
     println!("  tools     - List available tools");
@@ -491,14 +491,27 @@ fn print_help() {
     println!("  clear     - Clear the screen");
     println!("  exit      - Exit the program");
     println!("  quit      - Exit the program");
-    println!("\n📝 Environment Variables:");
+    println!();
+    println!("📦 v0.7.0 New Commands (use in CLI mode):");
+    println!("  task      - Task management (list/create/status/cancel)");
+    println!("  dag       - DAG workflow management (list/create/run/status)");
+    println!("  schedule  - Schedule management (list/add/remove)");
+    println!("  memory    - Memory management (store/search/list/delete)");
+    println!("  federation- Federation management (status/sync/nodes)");
+    println!("  audit     - Audit log queries (query/stats/export)");
+    println!("  watchdog  - Watchdog monitoring (status/lease/check/recovery)");
+    println!("  strategy  - Context strategy (list/get/set/config)");
+    println!("  session   - Session management (list/create/switch/close)");
+    println!();
+    println!("📝 Environment Variables:");
     println!("  LLM_PROVIDER    - Provider (openai, claude, glm, glm-cn, z.ai, etc.)");
     println!("  LLM_MODEL       - Model name");
     println!("  GLM_API_KEY     - GLM API key (format: id.secret)");
     println!("  GLM_REGION      - GLM region (china/international)");
     println!("  OPENAI_API_KEY  - OpenAI API key");
     println!("  ANTHROPIC_API_KEY - Claude API key");
-    println!("\n🔧 CLI Options:");
+    println!();
+    println!("🔧 CLI Options:");
     println!("  --provider NAME   - Set provider");
     println!("  --model NAME      - Set model");
     println!("  --glm-region REGION - Set GLM region (china/international)");

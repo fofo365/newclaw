@@ -22,8 +22,8 @@ export default function Login() {
       const res = await loginWithPairCode(values)
       const data: LoginResponse = res.data
 
-      // 使用 AuthContext 的 login 方法
-      login(data.token, data.session_id)
+      // 使用 AuthContext 的 login 方法，传递 expires_at
+      login(data.token, data.session_id, data.expires_at)
 
       // 跳转到 Dashboard
       navigate('/dashboard')
