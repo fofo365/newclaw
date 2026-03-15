@@ -255,6 +255,67 @@ impl ConnectionPool {
             Err(WebSocketError::ConnectionNotFound(app_id.to_string()))
         }
     }
+    
+    /// 接收消息（从 WebSocket 流读取）
+    pub async fn receive_message(&self, app_id: &str) -> WebSocketResult<Option<String>> {
+        let mut connections = self.connections.write().await;
+        
+        if let Some(conn) = connections.get_mut(app_id) {
+            if let Some(ref mut ws) = conn.ws {
+                // 使用 tokio::time::timeout 避免阻塞
+                match tokio::time::timeout(
+                    tokio::time::Duration::from_millis(100),
+                    ws.next()
+                ).await {
+                    Ok(Some(Ok(Message::Text(text)))) => {
+                        return Ok(Some(text));
+                    }
+                    Ok(Some(Ok(Message::Ping(data)))) => {
+                        // 自动回复 Pong
+                        let _ = ws.send(Message::Pong(data)).await;
+                        return Ok(None);
+                    }
+                    Ok(Some(Ok(Message::Pong(_)))) => {
+                        return Ok(None);
+                    }
+                    Ok(Some(Ok(Message::Close(_)))) => {
+                        conn.state = ConnectionState::Disconnected;
+                        return Ok(None);
+                    }
+                    Ok(Some(Err(e))) => {
+                        conn.state = ConnectionState::Error(e.to_string());
+                        return Err(WebSocketError::WebSocket(e.to_string()));
+                    }
+                    Ok(None) => {
+                        conn.state = ConnectionState::Disconnected;
+                        return Ok(None);
+                    }
+                    Err(_) => {
+                        // 超时，没有消息
+                        return Ok(None);
+                    }
+                    _ => return Ok(None),
+                }
+            }
+        }
+        
+        Err(WebSocketError::ConnectionNotFound(app_id.to_string()))
+    }
+    
+    /// 发送消息（通过 WebSocket 流发送）
+    pub async fn send_message(&self, app_id: &str, message: &str) -> WebSocketResult<()> {
+        let mut connections = self.connections.write().await;
+        
+        if let Some(conn) = connections.get_mut(app_id) {
+            if let Some(ref mut ws) = conn.ws {
+                ws.send(Message::Text(message.to_string())).await
+                    .map_err(|e| WebSocketError::WebSocket(e.to_string()))?;
+                return Ok(());
+            }
+        }
+        
+        Err(WebSocketError::ConnectionNotFound(app_id.to_string()))
+    }
 }
 
 #[cfg(test)]

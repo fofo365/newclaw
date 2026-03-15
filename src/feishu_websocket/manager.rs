@@ -246,9 +246,94 @@ impl FeishuWebSocketManager {
     
     /// 启动消息接收循环
     async fn start_message_loop(&self, app_id: &str) {
-        // 这里应该启动一个后台任务来接收消息
-        // 由于架构限制，暂时跳过
-        debug!("Starting message loop for app: {}", app_id);
+        let pool = self.pool.clone();
+        let event_handler = self.event_handler.clone();
+        let app_id = app_id.to_string();
+        let running = self.running.clone();
+        
+        // 启动后台任务接收消息
+        tokio::spawn(async move {
+            info!("Starting message loop for app: {}", app_id);
+            
+            loop {
+                // 检查是否仍在运行
+                let is_running = *running.read().await;
+                if !is_running {
+                    info!("Message loop stopped for app: {}", app_id);
+                    break;
+                }
+                
+                // 从连接池获取消息
+                match pool.receive_message(&app_id).await {
+                    Ok(Some(message)) => {
+                        info!("Received message for {}: {}", app_id, message);
+                        
+                        // 解析并处理消息
+                        if let Ok(event) = FeishuEvent::from_json(&message) {
+                            if let Err(e) = event_handler.handle(event).await {
+                                error!("Failed to handle event: {:?}", e);
+                            }
+                        } else {
+                            // 尝试解析飞书原始消息格式
+                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&message) {
+                                // 处理飞书消息格式
+                                if let Some(event_type) = json.get("type").and_then(|t| t.as_str()) {
+                                    info!("Feishu event type: {}", event_type);
+                                    
+                                    // 解析消息内容
+                                    if event_type == "message" {
+                                        if let Some(event_data) = json.get("event") {
+                                            let open_id = event_data.get("sender")
+                                                .and_then(|s| s.get("sender_id"))
+                                                .and_then(|id| id.get("open_id"))
+                                                .and_then(|id| id.as_str())
+                                                .unwrap_or("");
+                                            
+                                            let chat_id = event_data.get("message")
+                                                .and_then(|m| m.get("chat_id"))
+                                                .and_then(|id| id.as_str())
+                                                .unwrap_or("");
+                                            
+                                            let content = event_data.get("message")
+                                                .and_then(|m| m.get("content"))
+                                                .and_then(|c| c.as_str())
+                                                .unwrap_or("");
+                                            
+                                            info!("Message from {} in {}: {}", open_id, chat_id, content);
+                                            
+                                            // 创建事件并处理
+                                            let event = FeishuEvent::MessageReceived {
+                                                app_id: app_id.clone(),
+                                                open_id: open_id.to_string(),
+                                                chat_id: chat_id.to_string(),
+                                                user_id: open_id.to_string(),
+                                                content: content.to_string(),
+                                                message_id: String::new(),
+                                                create_time: chrono::Utc::now().timestamp(),
+                                            };
+                                            
+                                            if let Err(e) = event_handler.handle(event).await {
+                                                error!("Failed to handle message event: {:?}", e);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        // 没有消息，短暂休眠
+                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    }
+                    Err(e) => {
+                        error!("Error receiving message for {}: {:?}", app_id, e);
+                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                    }
+                }
+            }
+            
+            info!("Message loop ended for app: {}", app_id);
+        });
     }
     
     /// 处理重连
