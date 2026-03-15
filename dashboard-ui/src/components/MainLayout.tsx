@@ -59,6 +59,21 @@ const menuItems = [
     label: '记忆管理',
   },
   {
+    key: '/strategy',
+    icon: <ScheduleOutlined />,
+    label: '上下文策略',
+  },
+  {
+    key: '/sessions',
+    icon: <MessageOutlined />,
+    label: '会话管理',
+  },
+  {
+    key: '/watchdog',
+    icon: <SecurityScanOutlined />,
+    label: 'Watchdog',
+  },
+  {
     key: '/audit',
     icon: <SecurityScanOutlined />,
     label: '审计日志',

@@ -5,7 +5,6 @@ import {
   DownloadOutlined,
   SecurityScanOutlined,
   WarningOutlined,
-  CheckCircleOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'

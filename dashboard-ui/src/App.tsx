@@ -14,6 +14,9 @@ import AdminApiKeys from './pages/AdminApiKeys'
 import Tasks from './pages/Tasks'
 import Memory from './pages/Memory'
 import Audit from './pages/Audit'
+import Watchdog from './pages/Watchdog'
+import Strategy from './pages/Strategy'
+import Sessions from './pages/Sessions'
 
 // 路由保护组件
 function ProtectedRoute() {
@@ -49,6 +52,9 @@ function App() {
               <Route path="tasks" element={<Tasks />} />
               <Route path="memory" element={<Memory />} />
               <Route path="audit" element={<Audit />} />
+              <Route path="watchdog" element={<Watchdog />} />
+              <Route path="strategy" element={<Strategy />} />
+              <Route path="sessions" element={<Sessions />} />
             </Route>
           </Route>
         </Routes>

@@ -2,12 +2,7 @@ import { useEffect, useState } from 'react'
 import { Card, Table, Button, Tag, Space, Modal, Form, Input, Select, message, Typography, Progress } from 'antd'
 import {
   PlusOutlined,
-  StopOutlined,
   ReloadOutlined,
-  CheckCircleOutlined,
-  CloseCircleOutlined,
-  ClockCircleOutlined,
-  PlayCircleOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 
