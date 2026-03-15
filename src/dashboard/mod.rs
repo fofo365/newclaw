@@ -23,6 +23,8 @@ use axum::{
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
+use crate::llm::{GlmRegion, GlmProviderType, GlmConfig as LlmGlmConfig};
+use crate::tools::feishu::client::{FeishuClient, FeishuConfig as FeishuClientConfig};
 
 // Re-exports
 pub use monitor::{LogEntry, LogFilter};
@@ -95,8 +97,36 @@ pub struct DashboardState {
     pub llm_provider: Option<Arc<dyn crate::llm::LLMProviderV3>>,
     /// LLM 配置
     pub llm_config: Arc<RwLock<Option<crate::config::LLMConfig>>>,
+    /// 飞书配置（内存存储）
+    pub feishu_config: Arc<RwLock<FeishuConfig>>,
     /// 配置文件路径
     pub config_path: Option<std::path::PathBuf>,
+    /// 工具注册表（用于工具调用）
+    pub tool_registry: Arc<crate::tools::ToolRegistry>,
+}
+
+/// 飞书配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeishuConfig {
+    pub app_id: Option<String>,
+    pub app_secret: Option<String>,
+    pub encrypt_key: Option<String>,
+    pub verification_token: Option<String>,
+    pub connection_mode: Option<String>,
+    pub configured: bool,
+}
+
+impl Default for FeishuConfig {
+    fn default() -> Self {
+        Self {
+            app_id: std::env::var("FEISHU_APP_ID").ok(),
+            app_secret: None,
+            encrypt_key: std::env::var("FEISHU_ENCRYPT_KEY").ok(),
+            verification_token: std::env::var("FEISHU_VERIFICATION_TOKEN").ok(),
+            connection_mode: Some("http_callback".to_string()),
+            configured: std::env::var("FEISHU_APP_ID").is_ok(),
+        }
+    }
 }
 
 impl DashboardState {
@@ -114,7 +144,9 @@ impl DashboardState {
             auth_state,
             llm_provider: None,
             llm_config: Arc::new(RwLock::new(None)),
+            feishu_config: Arc::new(RwLock::new(FeishuConfig::default())),
             config_path: None,
+            tool_registry: Arc::new(crate::tools::ToolRegistry::new()),
         }
     }
 
@@ -139,7 +171,9 @@ impl DashboardState {
             auth_state,
             llm_provider: Some(Arc::new(provider)),
             llm_config: Arc::new(RwLock::new(Some(llm_config))),
+            feishu_config: Arc::new(RwLock::new(FeishuConfig::default())),
             config_path: None,
+            tool_registry: Arc::new(crate::tools::ToolRegistry::new()),
         })
     }
 
@@ -190,7 +224,9 @@ impl DashboardState {
             auth_state,
             llm_provider,
             llm_config: Arc::new(RwLock::new(llm_config)),
+            feishu_config: Arc::new(RwLock::new(FeishuConfig::default())),
             config_path: Some(config_path),
+            tool_registry: Arc::new(crate::tools::ToolRegistry::new()),
         })
     }
 
@@ -275,6 +311,135 @@ impl DashboardState {
         self.save_config().await?;
 
         Ok(())
+    }
+
+    /// 更新飞书配置
+    pub async fn update_feishu_config(&self, payload: crate::dashboard::config_api::UpdateFeishuConfigRequest) -> anyhow::Result<()> {
+        // 更新内存中的飞书配置
+        let mut feishu_config = self.feishu_config.write().await;
+
+        if let Some(app_id) = &payload.app_id {
+            feishu_config.app_id = Some(app_id.clone());
+            feishu_config.configured = !app_id.is_empty();
+        }
+
+        if let Some(app_secret) = &payload.app_secret {
+            feishu_config.app_secret = Some(app_secret.clone());
+        }
+
+        if let Some(encrypt_key) = &payload.encrypt_key {
+            feishu_config.encrypt_key = Some(encrypt_key.clone());
+        }
+
+        if let Some(verification_token) = &payload.verification_token {
+            feishu_config.verification_token = Some(verification_token.clone());
+        }
+
+        if let Some(connection_mode) = &payload.connection_mode {
+            feishu_config.connection_mode = Some(connection_mode.clone());
+        }
+
+        tracing::info!("Updated Feishu config: app_id={:?}", payload.app_id);
+
+        // 释放锁
+        drop(feishu_config);
+
+        // 保存到文件
+        if let Some(config_path) = &self.config_path {
+            self.save_feishu_config_to_file(config_path).await?;
+        } else {
+            tracing::warn!("No config file path set, Feishu config not persisted");
+        }
+
+        Ok(())
+    }
+
+    /// 保存飞书配置到文件
+    async fn save_feishu_config_to_file(&self, config_path: &std::path::PathBuf) -> anyhow::Result<()> {
+        let feishu_config = self.feishu_config.read().await;
+
+        // 创建配置文件目录（如果不存在）
+        if let Some(parent) = config_path.parent() {
+            tokio::fs::create_dir_all(parent).await
+                .map_err(|e| anyhow::anyhow!("Failed to create config directory: {}", e))?;
+        }
+
+        // 读取现有配置（如果存在）
+        let mut config = if config_path.exists() {
+            crate::config::Config::from_file(config_path)?
+        } else {
+            crate::config::Config::default()
+        };
+
+        // 更新飞书配置（使用第一个账号）
+        let app_id = feishu_config.app_id.as_ref().and_then(|s| if s.is_empty() { None } else { Some(s.clone()) });
+        let app_secret = feishu_config.app_secret.as_ref().and_then(|s| if s.is_empty() { None } else { Some(s.clone()) });
+        let encrypt_key = feishu_config.encrypt_key.as_ref().and_then(|s| if s.is_empty() { None } else { Some(s.clone()) });
+        let verification_token = feishu_config.verification_token.as_ref().and_then(|s| if s.is_empty() { None } else { Some(s.clone()) });
+        let connection_mode = feishu_config.connection_mode.as_ref().and_then(|s| if s.is_empty() { None } else { Some(s.clone()) });
+
+        if let (Some(app_id), Some(app_secret)) = (app_id, app_secret) {
+            // 更新或添加第一个账号
+            config.feishu.accounts.entry("default".to_string()).or_insert_with(crate::config::FeishuAccount::default);
+            if let Some(account) = config.feishu.accounts.get_mut("default") {
+                account.app_id = app_id;
+                account.app_secret = app_secret;
+                if let Some(key) = encrypt_key {
+                    account.encrypt_key = key;
+                }
+                if let Some(token) = verification_token {
+                    account.verification_token = token;
+                }
+                if let Some(mode) = connection_mode {
+                    account.connection_mode = mode;
+                }
+            }
+        }
+
+        // 序列化为 TOML
+        let toml_content = toml::to_string_pretty(&config)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize config: {}", e))?;
+
+        // 写入文件
+        tokio::fs::write(config_path, toml_content).await
+            .map_err(|e| anyhow::anyhow!("Failed to write config file: {}", e))?;
+
+        tracing::info!("Saved Feishu config to {}", config_path.display());
+
+        Ok(())
+    }
+
+    /// 测试飞书连接
+    pub async fn test_feishu_connection(&self) -> anyhow::Result<bool> {
+        let feishu_config = self.feishu_config.read().await;
+
+        let app_id = feishu_config.app_id.as_ref().ok_or_else(|| anyhow::anyhow!("Feishu app_id not configured"))?;
+        let app_secret = feishu_config.app_secret.as_ref().ok_or_else(|| anyhow::anyhow!("Feishu app_secret not configured"))?;
+
+        if app_id.is_empty() || app_secret.is_empty() {
+            return Ok(false);
+        }
+
+        // 创建飞书客户端
+        let client_config = FeishuClientConfig {
+            app_id: app_id.clone(),
+            app_secret: app_secret.clone(),
+            base_url: "https://open.feishu.cn/open-apis".to_string(),
+        };
+
+        let client = FeishuClient::new(client_config);
+
+        // 尝试获取访问令牌来验证配置
+        match client.get_access_token().await {
+            Ok(token) => {
+                tracing::info!("Feishu connection test successful, got token: {}...", &token[..20.min(token.len())]);
+                Ok(true)
+            }
+            Err(e) => {
+                tracing::warn!("Feishu connection test failed: {}", e);
+                Ok(false)
+            }
+        }
     }
 
     /// 创建 LLM Provider
@@ -413,11 +578,64 @@ pub async fn prometheus_metrics() -> impl axum::response::IntoResponse {
 pub async fn start_dashboard(config: DashboardConfig) -> anyhow::Result<()> {
     use axum::serve;
     use tokio::net::TcpListener;
-    
+
     // 初始化 Prometheus 指标
     crate::metrics::prometheus::init_metrics();
 
-    let state = Arc::new(DashboardState::new(config.clone()));
+    // 尝试从配置文件初始化
+    let state = if let Ok(config_path) = std::env::var("NEWCLAW_CONFIG") {
+        let path = std::path::PathBuf::from(config_path);
+        match DashboardState::from_config_file(config.clone(), &path) {
+            Ok(state) => {
+                tracing::info!("Loaded config from {}", path.display());
+                Arc::new(state)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load config from {}: {}, creating default state", path.display(), e);
+                Arc::new(DashboardState::new(config.clone()))
+            }
+        }
+    } else {
+        // 尝试从环境变量初始化 LLM Provider
+        if let Ok(api_key) = std::env::var("GLM_API_KEY") {
+            tracing::info!("Found GLM_API_KEY, initializing LLM provider");
+            let llm_config = crate::config::LLMConfig {
+                provider: "glm".to_string(),
+                model: std::env::var("GLM_MODEL").unwrap_or_else(|_| "glm-4".to_string()),
+                temperature: std::env::var("GLM_TEMPERATURE")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0.7),
+                max_tokens: std::env::var("GLM_MAX_TOKENS")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(4096),
+                glm: crate::config::GlmProviderConfig {
+                    api_key: Some(api_key),
+                    base_url: std::env::var("GLM_BASE_URL").ok(),
+                    region: "international".to_string(),
+                    provider_type: "glm".to_string(),
+                },
+                openai: Default::default(),
+                claude: Default::default(),
+            };
+
+            Arc::new(DashboardState::with_llm(config.clone(), llm_config)?)
+        } else {
+            tracing::warn!("No GLM_API_KEY found, starting Dashboard without LLM support");
+            Arc::new(DashboardState::new(config.clone()))
+        }
+    };
+
+    // 初始化内置工具
+    let data_dir = std::path::PathBuf::from("./data");
+    let workspace_dir = std::path::PathBuf::from(".");
+    if let Err(e) = crate::tools::init_builtin_tools(&state.tool_registry, data_dir, workspace_dir).await {
+        tracing::warn!("Failed to initialize some tools: {}", e);
+    } else {
+        tracing::info!("✅ Built-in tools initialized for Dashboard");
+    }
+
     let app = create_dashboard_router(state);
 
     let addr = format!("0.0.0.0:{}", config.port);

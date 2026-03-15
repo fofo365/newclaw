@@ -5,14 +5,15 @@
 // 2. 消息历史
 // 3. 流式输出（SSE）
 // 4. Token 计数和费用统计
+// 5. 工具调用支持
 
 use axum::{
-    extract::{Extension, Path, Json},
     response::{
         sse::{Event, Sse},
         IntoResponse,
     },
 };
+use axum::extract::{State, Path, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -21,6 +22,7 @@ use chrono::{DateTime, Utc};
 use futures::stream::{self, Stream, StreamExt};
 use std::convert::Infallible;
 use futures::pin_mut;
+use crate::llm::{ToolDefinition, ToolCall};
 
 // ============== 数据结构 ==============
 
@@ -90,7 +92,7 @@ pub struct SessionSummary {
 
 /// 列出所有会话
 pub async fn list_sessions(
-    Extension(state): Extension<Arc<super::DashboardState>>,
+    State(state): State<Arc<super::DashboardState>>,
 ) -> Json<SessionListResponse> {
     let sessions = state.sessions.read().await;
     
@@ -127,7 +129,7 @@ pub async fn list_sessions(
 
 /// 创建新会话
 pub async fn create_session(
-    Extension(state): Extension<Arc<super::DashboardState>>,
+    State(state): State<Arc<super::DashboardState>>,
     Json(payload): Json<CreateSessionRequest>,
 ) -> Json<ChatSession> {
     let now = Utc::now();
@@ -150,7 +152,7 @@ pub async fn create_session(
 
 /// 获取会话详情
 pub async fn get_session(
-    Extension(state): Extension<Arc<super::DashboardState>>,
+    State(state): State<Arc<super::DashboardState>>,
     Path(id): Path<String>,
 ) -> Result<Json<ChatSession>, (axum::http::StatusCode, String)> {
     let sessions = state.sessions.read().await;
@@ -166,7 +168,7 @@ pub async fn get_session(
 
 /// 发送消息
 pub async fn send_message(
-    Extension(state): Extension<Arc<super::DashboardState>>,
+    State(state): State<Arc<super::DashboardState>>,
     Path(id): Path<String>,
     Json(payload): Json<SendMessageRequest>,
 ) -> Result<Json<ChatMessage>, (axum::http::StatusCode, String)> {
@@ -196,7 +198,7 @@ pub async fn send_message(
     // 调用真实 LLM（如果配置）
     let start_time = std::time::Instant::now();
     let (assistant_content, token_usage, model_name) = if let Some(ref provider) = state.llm_provider {
-        match call_llm(provider.as_ref(), &session.messages, &llm_config).await {
+        match call_llm(provider.as_ref(), &session.messages, &llm_config, &state.tool_registry).await {
             Ok(result) => result,
             Err(e) => {
                 tracing::error!("LLM call failed: {}", e);
@@ -255,16 +257,20 @@ pub async fn send_message(
     Ok(Json(assistant_message))
 }
 
-/// 调用 LLM Provider
+/// 调用 LLM Provider（带工具支持）
 async fn call_llm(
     provider: &dyn crate::llm::LLMProviderV3,
     messages: &[ChatMessage],
     llm_config: &Option<crate::config::LLMConfig>,
+    tool_registry: &crate::tools::ToolRegistry,
 ) -> Result<(String, TokenUsage, String), Box<dyn std::error::Error + Send + Sync>> {
-    use crate::llm::{ChatRequest, Message, MessageRole};
+    use crate::llm::{ChatRequest, Message, MessageRole, ToolDefinition};
+    
+    // 获取工具定义
+    let tool_definitions = get_tool_definitions(tool_registry).await;
     
     // 转换消息格式
-    let llm_messages: Vec<Message> = messages
+    let mut llm_messages: Vec<Message> = messages
         .iter()
         .map(|m| Message {
             role: match m.role.as_str() {
@@ -292,35 +298,99 @@ async fn call_llm(
         ),
     };
     
-    // 创建请求
-    let request = ChatRequest {
-        messages: llm_messages,
-        model,
-        temperature,
-        max_tokens,
-        top_p: None,
-        stop: None,
-        tools: None,
-    };
+    // 工具调用循环（最多 5 轮）
+    let max_tool_rounds = 5;
+    let mut total_tokens = TokenUsage { input: 0, output: 0, total: 0 };
     
-    // 调用 LLM
-    let response = provider.chat(request).await
-        .map_err(|e| format!("LLM API error: {}", e))?;
+    for _round in 0..max_tool_rounds {
+        // 创建请求
+        let request = ChatRequest {
+            messages: llm_messages.clone(),
+            model: model.clone(),
+            temperature,
+            max_tokens,
+            top_p: None,
+            stop: None,
+            tools: if tool_definitions.is_empty() { None } else { Some(tool_definitions.clone()) },
+        };
+        
+        // 调用 LLM
+        let response = provider.chat(request).await
+            .map_err(|e| format!("LLM API error: {}", e))?;
+        
+        // 累加 token 使用量
+        total_tokens.input += response.usage.prompt_tokens as u32;
+        total_tokens.output += response.usage.completion_tokens as u32;
+        total_tokens.total += response.usage.total_tokens as u32;
+        
+        // 检查是否有工具调用
+        if let Some(tool_calls) = &response.message.tool_calls {
+            if tool_calls.is_empty() {
+                // 没有工具调用，返回最终结果
+                return Ok((response.message.content, total_tokens, response.model));
+            }
+            
+            // 将 assistant 消息（含 tool_calls）添加到历史
+            llm_messages.push(Message {
+                role: MessageRole::Assistant,
+                content: response.message.content.clone(),
+                tool_calls: Some(tool_calls.clone()),
+                tool_call_id: None,
+            });
+            
+            // 执行每个工具调用
+            for tool_call in tool_calls {
+                tracing::info!("Executing tool: {} with args: {}", tool_call.name, tool_call.arguments);
+                
+                // 解析参数
+                let args: serde_json::Value = serde_json::from_str(&tool_call.arguments)
+                    .unwrap_or_else(|_| serde_json::json!({}));
+                
+                // 执行工具
+                let tool_result = match tool_registry.call(&tool_call.name, args).await {
+                    Ok(result) => result.to_string(),
+                    Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
+                };
+                
+                tracing::info!("Tool result: {}", tool_result);
+                
+                // 添加工具结果消息
+                llm_messages.push(Message {
+                    role: MessageRole::Tool,
+                    content: tool_result,
+                    tool_calls: None,
+                    tool_call_id: Some(tool_call.id.clone()),
+                });
+            }
+            
+            // 继续循环，让 LLM 处理工具结果
+            continue;
+        }
+        
+        // 没有工具调用，返回最终结果
+        return Ok((response.message.content, total_tokens, response.model));
+    }
     
-    // 提取结果
-    let content = response.message.content;
-    let tokens = TokenUsage {
-        input: response.usage.prompt_tokens as u32,
-        output: response.usage.completion_tokens as u32,
-        total: response.usage.total_tokens as u32,
-    };
-    
-    Ok((content, tokens, response.model))
+    // 超过最大轮数，返回最后的错误信息
+    Err(format!("Exceeded maximum tool call rounds ({})", max_tool_rounds).into())
+}
+
+/// 从 ToolRegistry 获取工具定义
+async fn get_tool_definitions(registry: &crate::tools::ToolRegistry) -> Vec<ToolDefinition> {
+    let tools = registry.list_tools().await;
+    tools
+        .into_iter()
+        .map(|t| ToolDefinition {
+            name: t.name,
+            description: t.description,
+            parameters: t.parameters,
+        })
+        .collect()
 }
 
 /// 流式响应（SSE）
 pub async fn stream_response(
-    Extension(state): Extension<Arc<super::DashboardState>>,
+    State(state): State<Arc<super::DashboardState>>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
     // 获取会话的最后一条用户消息

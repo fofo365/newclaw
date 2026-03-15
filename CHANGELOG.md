@@ -5,6 +5,30 @@ All notable changes to NewClaw will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-03-15
+
+### Added
+- **DAG 工作流引擎** - 支持复杂任务编排
+- **6 层配置架构** - 灵活的配置管理
+- **联邦记忆系统** - 跨节点记忆共享
+- **任务调度增强** - Cron 调度器 + 延迟队列 + 事件触发器
+- **向量存储和代码库嵌入索引**
+- **分层摘要机制** - MMR 去重 + 文件级记忆持久化
+
+### Fixed
+- **问题 #1**: CLI tools 命令显示"工具系统待实现" → 修复 `register_tools` 和 `list_tools`
+- **问题 #2**: Dashboard 对话无工具调用能力 → 添加工具调用循环支持
+- **问题 #3**: CLI 缺少工具调用能力 → 添加工具调用循环支持
+- **问题 #4**: `query.rs` 编译错误 → 修复 `Default` trait impl 块分离
+- **问题 #5**: `FusedResult` 可见性警告 → 改为 `pub`
+- 导出 `ToolDefinition` 和 `ToolCall` 类型到 `crate::llm`
+- Dashboard 启动时自动初始化内置工具
+
+### Changed
+- DashboardState 添加 `tool_registry` 字段
+- `call_llm` 函数支持工具调用循环（最多 5 轮）
+- CLI `process_chat` 支持工具调用循环
+
 ## [Unreleased]
 
 ### Added

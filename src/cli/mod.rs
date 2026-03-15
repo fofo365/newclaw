@@ -11,7 +11,7 @@ use clap::Parser;
 use crate::config::Config;
 use crate::llm::{
     LLMProviderV3, OpenAIProvider, ClaudeProvider, GlmProvider, GlmConfig, GlmRegion, GlmProviderType,
-    ChatRequest, Message, MessageRole, TokenUsage, is_glm_alias, create_glm_provider
+    ChatRequest, Message, MessageRole, TokenUsage, ToolDefinition, is_glm_alias, create_glm_provider
 };
 use crate::tools::ToolRegistry;
 
@@ -207,7 +207,7 @@ async fn run_interactive_mode(config: &Config) -> anyhow::Result<()> {
         }
         
         // 处理聊天请求
-        match process_chat(&provider, input, config).await {
+        match process_chat(&provider, input, config, &tool_registry).await {
             Ok(response) => {
                 println!("🤖 {}\n", response);
             }
@@ -291,25 +291,82 @@ async fn process_chat(
     provider: &Option<Box<dyn LLMProviderV3>>,
     input: &str,
     config: &Config,
+    tool_registry: &ToolRegistry,
 ) -> anyhow::Result<String> {
     if let Some(p) = provider {
-        let request = ChatRequest {
-            messages: vec![Message {
-                role: MessageRole::User,
-                content: input.to_string(),
-                tool_calls: None,
-                tool_call_id: None,
-            }],
-            model: config.get_model(),
-            temperature: config.llm.temperature,
-            max_tokens: Some(config.llm.max_tokens),
-            top_p: None,
-            stop: None,
-            tools: None,
-        };
+        // 获取工具定义
+        let tool_definitions = get_tool_definitions(tool_registry).await;
         
-        let response = p.chat(request).await?;
-        Ok(response.message.content)
+        let mut messages = vec![Message {
+            role: MessageRole::User,
+            content: input.to_string(),
+            tool_calls: None,
+            tool_call_id: None,
+        }];
+        
+        // 工具调用循环（最多 5 轮）
+        let max_tool_rounds = 5;
+        
+        for _round in 0..max_tool_rounds {
+            let request = ChatRequest {
+                messages: messages.clone(),
+                model: config.get_model(),
+                temperature: config.llm.temperature,
+                max_tokens: Some(config.llm.max_tokens),
+                top_p: None,
+                stop: None,
+                tools: if tool_definitions.is_empty() { None } else { Some(tool_definitions.clone()) },
+            };
+            
+            let response = p.chat(request).await?;
+            
+            // 检查是否有工具调用
+            if let Some(tool_calls) = &response.message.tool_calls {
+                if tool_calls.is_empty() {
+                    return Ok(response.message.content);
+                }
+                
+                // 将 assistant 消息添加到历史
+                messages.push(Message {
+                    role: MessageRole::Assistant,
+                    content: response.message.content.clone(),
+                    tool_calls: Some(tool_calls.clone()),
+                    tool_call_id: None,
+                });
+                
+                // 执行每个工具调用
+                for tool_call in tool_calls {
+                    println!("🔧 Calling tool: {}...", tool_call.name);
+                    
+                    let args: serde_json::Value = serde_json::from_str(&tool_call.arguments)
+                        .unwrap_or_else(|_| serde_json::json!({}));
+                    
+                    let tool_result = match tool_registry.call(&tool_call.name, args).await {
+                        Ok(result) => result.to_string(),
+                        Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
+                    };
+                    
+                    println!("📤 Tool result: {}", if tool_result.len() > 200 {
+                        format!("{}...", &tool_result[..200])
+                    } else {
+                        tool_result.clone()
+                    });
+                    
+                    messages.push(Message {
+                        role: MessageRole::Tool,
+                        content: tool_result,
+                        tool_calls: None,
+                        tool_call_id: Some(tool_call.id.clone()),
+                    });
+                }
+                
+                continue;
+            }
+            
+            return Ok(response.message.content);
+        }
+        
+        Err(anyhow::anyhow!("Exceeded maximum tool call rounds"))
     } else {
         // Mock 模式
         let env_hint = if is_glm_alias(&config.llm.provider) {
@@ -325,24 +382,51 @@ async fn process_chat(
     }
 }
 
+/// 从 ToolRegistry 获取工具定义
+async fn get_tool_definitions(registry: &ToolRegistry) -> Vec<ToolDefinition> {
+    let tools = registry.list_tools().await;
+    tools
+        .into_iter()
+        .map(|t| ToolDefinition {
+            name: t.name,
+            description: t.description,
+            parameters: t.parameters,
+        })
+        .collect()
+}
+
 /// 注册工具
-async fn register_tools(_registry: &ToolRegistry) {
-    // TODO: 工具系统待重新实现
-    // use std::sync::Arc;
-    // use crate::tools::{ReadTool, WriteTool, EditTool, ExecTool, SearchTool};
-    // 
-    // registry.register(Arc::new(ReadTool::default())).await;
-    // registry.register(Arc::new(WriteTool::default())).await;
-    // registry.register(Arc::new(EditTool::default())).await;
-    // registry.register(Arc::new(ExecTool::default())).await;
-    // registry.register(Arc::new(SearchTool::default())).await;
+async fn register_tools(registry: &ToolRegistry) {
+    use std::path::PathBuf;
+    use crate::tools::init_builtin_tools;
+    
+    // 初始化内置工具
+    if let Err(e) = init_builtin_tools(
+        registry,
+        PathBuf::from("./data"),
+        PathBuf::from("."),
+    ).await {
+        eprintln!("Warning: Failed to initialize some tools: {}", e);
+    }
 }
 
 /// 列出工具
-async fn list_tools(_registry: &ToolRegistry) {
-    println!("\n📦 Available Tools:");
+async fn list_tools(registry: &ToolRegistry) {
+    let tools = registry.list_tools().await;
+    
+    if tools.is_empty() {
+        println!("\n📦 No tools registered.");
+        println!("   Run 'tools' again after tools are initialized.\n");
+        return;
+    }
+    
+    println!("\n📦 Available Tools ({}):", tools.len());
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    println!("  工具系统待实现");
+    
+    for tool in tools {
+        println!("  • {} - {}", tool.name, tool.description);
+    }
+    
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 }
 

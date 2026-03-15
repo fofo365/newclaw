@@ -197,12 +197,66 @@ impl FeishuWebSocketManager {
     
     /// 获取飞书 WebSocket URL
     async fn get_websocket_url(&self, app_id: &str, app_secret: &str) -> WebSocketResult<String> {
-        // 这里应该调用飞书 API 获取 WebSocket URL
-        // 暂时返回模拟 URL
-        Ok(format!(
-            "{}/{}?app_id={}&app_secret={}",
-            self.config.base_url, "ws", app_id, app_secret
-        ))
+        use serde_json::json;
+        
+        // 第一步：获取 access_token
+        let token_url = format!("{}/auth/v3/tenant_access_token/internal", self.config.base_url);
+        let client = reqwest::Client::new();
+        
+        let request_body = json!({
+            "app_id": app_id,
+            "app_secret": app_secret,
+        });
+        
+        let response = client
+            .post(&token_url)
+            .header("Content-Type", "application/json")
+            .json(&request_body)
+            .send()
+            .await?;
+        
+        let json_response: serde_json::Value = response.json().await?;
+        
+        if json_response["code"].as_i64() != Some(0) {
+            return Err(WebSocketError::AuthFailed(format!(
+                "Failed to get access token: {:?}", json_response["msg"]
+            )));
+        }
+        
+        let access_token = json_response["tenant_access_token"]
+            .as_str()
+            .ok_or_else(|| WebSocketError::AuthFailed("No token in response".to_string()))?
+            .to_string();
+        
+        // 第二步：获取 WebSocket URL
+        let ws_url_url = format!("{}/v1.3/cn/copilot/realtime/create_tcp", self.config.base_url);
+        
+        let ws_request_body = json!({
+            "tenant_access_token": access_token,
+        });
+        
+        let ws_response = client
+            .post(&ws_url_url)
+            .header("Content-Type", "application/json; charset=utf-8")
+            .json(&ws_request_body)
+            .send()
+            .await?;
+        
+        let ws_json: serde_json::Value = ws_response.json().await?;
+        
+        if ws_json["code"].as_i64() != Some(0) {
+            return Err(WebSocketError::AuthFailed(format!(
+                "Failed to get WebSocket URL: {:?}", ws_json["msg"]
+            )));
+        }
+        
+        let ws_url = ws_json["data"]["ws_url"]
+            .as_str()
+            .ok_or_else(|| WebSocketError::AuthFailed("No ws_url in response".to_string()))?
+            .to_string();
+        
+        info!("Successfully obtained WebSocket URL for app {}", app_id);
+        Ok(ws_url)
     }
     
     /// 启动消息接收循环

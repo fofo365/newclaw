@@ -1,74 +1,33 @@
-# NewClaw Production Configuration
-# IMPORTANT: Replace all placeholder values before deployment
+[llm]
+provider = "glm"
+model = "glm-4"
+temperature = 0.699999988079071
+max_tokens = 4096
 
-[server]
+[llm.openai]
+
+[llm.claude]
+
+[llm.glm]
+api_key = "1d19a64c20074ec3be505e3bcb9c322f.uBJirWlBOYFQhste"
+region = "international"
+provider_type = "glm"
+
+[gateway]
 host = "0.0.0.0"
 port = 3000
-workers = 8
+enable_watchdog = false
+watchdog_addr = "http://127.0.0.1:50051"
 
-[server.tls]
-enabled = false
+[tools]
+enabled = []
+timeout_secs = 0
 
-[api_keys]
-# Load from environment: NEWCLAW_API_KEYS
-# Format: key1:name1:scope1,scope2;key2:name2:scope3
-keys = []
-
-[jwt]
-# Load from environment: NEWCLAW_JWT_SECRET
-secret = "${NEWCLAW_JWT_SECRET}"
-issuer = "newclaw-prod"
-expiry_hours = 8
-
-[rbac]
-[[rbac.roles]]
-name = "admin"
-permissions = [
-    { resource = "*", action = "*" }
-]
-
-[[rbac.roles]]
-name = "service"
-permissions = [
-    { resource = "messages", action = "read" },
-    { resource = "messages", action = "write" }
-]
-
-[audit]
+[feishu.accounts.default]
+app_id = "cli_****"
+app_secret = "zYNommBXUXSDzUaULXUfMhBJKjK6LyAZ"
+encrypt_key = ""
+verification_token = ""
 enabled = true
-log_path = "/var/log/newclaw/audit.log"
-max_entries = 1000000
-rotation = "daily"
-
-[rate_limiting]
-enabled = true
-algorithm = "token_bucket"
-requests_per_minute = 120
-burst_size = 20
-
-[message_queue]
-max_size = 50000
-processing_timeout_ms = 10000
-retry_attempts = 5
-retry_delay_ms = 2000
-
-[websocket]
-enabled = true
-max_connections = 5000
-ping_interval_seconds = 30
-max_message_size_bytes = 2097152  # 2MB
-
-[context]
-max_contexts = 5000
-context_timeout_seconds = 7200  # 2 hours
-cleanup_interval_seconds = 300
-
-[logging]
-level = "warn"
-format = "json"
-output = "/var/log/newclaw/app.log"
-
-[monitoring]
-enabled = true
-metrics_port = 9090
-health_check_path = "/health"
+connection_mode = "websocket"
+domain = "feishu"

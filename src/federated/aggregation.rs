@@ -57,10 +57,11 @@ impl Default for AggregationConfig {
 // ============================================================================
 
 /// 分数融合策略
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum FusionStrategy {
     /// 平均分数
+    #[default]
     Average,
     /// 最大分数
     Max,
@@ -74,19 +75,14 @@ pub enum FusionStrategy {
     ReciprocalRankFusion,
 }
 
-impl Default for FusionStrategy {
-    fn default() -> Self {
-        Self::Average
-    }
-}
-
 /// 去重策略
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum DeduplicationStrategy {
     /// 不去重
     None,
     /// 按 ID 去重
+    #[default]
     ById,
     /// 按内容相似度去重
     ContentSimilarity,
@@ -96,17 +92,12 @@ pub enum DeduplicationStrategy {
     Hybrid,
 }
 
-impl Default for DeduplicationStrategy {
-    fn default() -> Self {
-        Self::ById
-    }
-}
-
 /// 排序策略
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum SortStrategy {
     /// 按分数降序
+    #[default]
     ScoreDescending,
     /// 按分数升序
     ScoreAscending,
@@ -118,12 +109,6 @@ pub enum SortStrategy {
     ImportanceDescending,
     /// 混合排序（分数 + 时间）
     Mixed,
-}
-
-impl Default for SortStrategy {
-    fn default() -> Self {
-        Self::ScoreDescending
-    }
 }
 
 // ============================================================================
@@ -197,7 +182,7 @@ impl ResultAggregator {
         
         for (node, result) in results {
             grouped.entry(result.id.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push((node, result));
         }
         
@@ -246,7 +231,7 @@ impl ResultAggregator {
                 scores.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
                 
                 let mid = scores.len() / 2;
-                if scores.len() % 2 == 0 {
+                if scores.len().is_multiple_of(2) {
                     (scores[mid - 1] + scores[mid]) / 2.0
                 } else {
                     scores[mid]
@@ -499,15 +484,15 @@ impl ResultAggregator {
 
 /// 融合后的结果
 #[derive(Debug, Clone)]
-struct FusedResult {
-    id: String,
-    content: String,
-    score: f32,
-    importance: f32,
-    created_at: String,
-    source_nodes: Vec<NodeId>,
-    bm25_scores: Vec<f32>,
-    vector_scores: Vec<f32>,
+pub struct FusedResult {
+    pub id: String,
+    pub content: String,
+    pub score: f32,
+    pub importance: f32,
+    pub created_at: String,
+    pub source_nodes: Vec<NodeId>,
+    pub bm25_scores: Vec<f32>,
+    pub vector_scores: Vec<f32>,
 }
 
 /// 聚合输出
@@ -628,13 +613,10 @@ impl ResultMerger {
         // 转换并排序
         let mut results: Vec<AggregatedResult> = merged.into_values().collect();
         
-        match self.config.sort_strategy {
-            SortStrategy::ScoreDescending => {
-                results.sort_by(|a, b| {
-                    b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
-                });
-            }
-            _ => {}
+        if self.config.sort_strategy == SortStrategy::ScoreDescending {
+            results.sort_by(|a, b| {
+                b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+            });
         }
         
         results

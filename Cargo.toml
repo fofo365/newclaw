@@ -9,7 +9,7 @@ authors = ["NewClaw Contributors"]
 
 [dependencies]
 # Async runtime
-tokio = { version = "1.42", features = ["rt-multi-thread", "macros", "time", "net", "io-util", "sync", "fs", "rt", "process"] }
+tokio = { version = "1.42", features = ["rt-multi-thread", "macros", "time", "net", "io-util", "sync", "fs", "rt", "process", "signal"] }
 libc = "0.2"
 tokio-util = "0.7"
 tokio-stream = "0.1"
@@ -79,7 +79,7 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
 
 # WebSocket
-tokio-tungstenite = "0.24"
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 futures-util = "0.3"
 
 # JWT

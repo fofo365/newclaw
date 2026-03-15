@@ -1,0 +1,26 @@
+# 测试控制状态
+
+status: running
+started_at: 2026-03-15T03:02:00+08:00
+paused_at: null
+cleared: false
+
+## 测试进度统计
+
+total_tests: 184
+completed: 0
+passed: 0
+failed: 0
+skipped: 0
+
+## 当前执行
+
+current_phase: "Phase 1 - 单元测试"
+current_module: "正在编译和执行"
+current_test: "cargo test --workspace"
+
+## 最后汇报
+
+last_report_at: 2026-03-15T03:02:00+08:00
+next_report_at: 2026-03-15T03:22:00+08:00
+report_interval_minutes: 20

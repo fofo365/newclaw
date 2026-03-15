@@ -136,6 +136,12 @@ impl From<std::io::Error> for WebSocketError {
     }
 }
 
+impl From<reqwest::Error> for WebSocketError {
+    fn from(err: reqwest::Error) -> Self {
+        WebSocketError::WebSocket(err.to_string())
+    }
+}
+
 pub type WebSocketResult<T> = Result<T, WebSocketError>;
 
 /// 日志级别

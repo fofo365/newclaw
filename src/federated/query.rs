@@ -132,7 +132,7 @@ impl FederatedQuery {
 }
 
 /// 查询类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryType {
     /// 关键词搜索
@@ -140,15 +140,10 @@ pub enum QueryType {
     /// 向量搜索
     Vector,
     /// 混合搜索
+    #[default]
     Hybrid,
     /// 全量搜索
     Full,
-}
-
-impl Default for QueryType {
-    fn default() -> Self {
-        Self::Hybrid
-    }
 }
 
 /// 查询过滤器
@@ -254,7 +249,15 @@ impl QueryRouter {
             node_latencies: RwLock::new(HashMap::new()),
         }
     }
-    
+}
+
+impl Default for QueryRouter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl QueryRouter {
     /// 添加节点
     pub async fn add_node(&self, node: NodeId) {
         let mut nodes = self.known_nodes.write().await;
@@ -513,7 +516,7 @@ impl FederatedQueryEngine {
         
         for (node, result) in results {
             grouped.entry(result.id.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push((node, result));
         }
         
@@ -630,7 +633,7 @@ impl QueryCache {
         hasher.update(query.query.as_bytes());
         hasher.update(query.limit.to_le_bytes());
         hasher.update(query.offset.to_le_bytes());
-        hasher.update(&format!("{:?}", query.filters));
+        hasher.update(format!("{:?}", query.filters));
         
         format!("{:x}", hasher.finalize())
     }

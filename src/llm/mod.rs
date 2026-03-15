@@ -13,7 +13,7 @@ pub mod models;
 pub mod lazy_provider;
 
 // Re-exports
-pub use provider::{LLMProviderV3, ChatRequest, ChatResponse, Message, MessageRole, LLMError, ModelStrategy, LLMConfig, ProviderType, TokenUsage};
+pub use provider::{LLMProviderV3, ChatRequest, ChatResponse, Message, MessageRole, LLMError, ModelStrategy, LLMConfig, ProviderType, TokenUsage, ToolDefinition, ToolCall};
 pub use openai::OpenAIProvider;
 pub use claude::ClaudeProvider;
 pub use ollama::{OllamaProvider, OllamaConfig, OllamaModel};

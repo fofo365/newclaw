@@ -1,0 +1,11 @@
+status: running
+started_at: 2026-03-15T12:33:00+08:00
+paused_at: null
+progress:
+  total: 160
+  current: 0
+  passed: 0
+  failed: 0
+current_phase: "Phase 1 - v0.1.0 核心基础"
+current_requirement: "REQ-0.1-001-01"
+last_update: null

@@ -6,10 +6,10 @@
 // 3. API Key 管理
 
 use axum::{
-    extract::{Extension, Path, Json},
     http::StatusCode,
     response::IntoResponse,
 };
+use axum::extract::{State, Path, Json};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -57,7 +57,7 @@ pub struct UserListResponse {
 
 /// 列出用户
 pub async fn list_users(
-    Extension(_state): Extension<Arc<super::DashboardState>>,
+    State(_state): State<Arc<super::DashboardState>>,
 ) -> Json<UserListResponse> {
     // TODO: 从数据库读取用户
     // 目前返回模拟数据
@@ -87,7 +87,7 @@ pub async fn list_users(
 
 /// 创建用户
 pub async fn create_user(
-    Extension(_state): Extension<Arc<super::DashboardState>>,
+    State(_state): State<Arc<super::DashboardState>>,
     Json(payload): Json<CreateUserRequest>,
 ) -> Result<Json<UserInfo>, AppError> {
     // 验证输入
@@ -123,7 +123,7 @@ pub async fn create_user(
 
 /// 删除用户
 pub async fn delete_user(
-    Extension(_state): Extension<Arc<super::DashboardState>>,
+    State(_state): State<Arc<super::DashboardState>>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, AppError> {
     // 防止删除 admin
@@ -179,7 +179,7 @@ pub struct ApiKeyResponse {
 
 /// 列出 API Keys
 pub async fn list_api_keys(
-    Extension(_state): Extension<Arc<super::DashboardState>>,
+    State(_state): State<Arc<super::DashboardState>>,
 ) -> Json<Vec<ApiKeyInfo>> {
     // TODO: 从数据库读取
     Json(vec![])
@@ -187,7 +187,7 @@ pub async fn list_api_keys(
 
 /// 创建 API Key
 pub async fn create_api_key(
-    Extension(_state): Extension<Arc<super::DashboardState>>,
+    State(_state): State<Arc<super::DashboardState>>,
     Json(payload): Json<CreateApiKeyRequest>,
 ) -> Result<Json<ApiKeyResponse>, AppError> {
     // 生成 API Key
@@ -228,7 +228,7 @@ pub async fn create_api_key(
 
 /// 撤销 API Key
 pub async fn revoke_api_key(
-    Extension(_state): Extension<Arc<super::DashboardState>>,
+    State(_state): State<Arc<super::DashboardState>>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, AppError> {
     // TODO: 从数据库标记为已撤销

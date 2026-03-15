@@ -8,14 +8,49 @@ const api = axios.create({
   },
 })
 
+// 请求拦截器：添加认证 token
+api.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('dashboard_token')
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  },
+  (error) => {
+    return Promise.reject(error)
+  }
+)
+
 // 响应拦截器
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     console.error('API Error:', error)
+    if (error.response?.status === 401) {
+      // Token 过期，跳转到登录页
+      localStorage.removeItem('dashboard_token')
+      window.location.href = '/login.html'
+    }
     return Promise.reject(error)
   }
 )
+
+// ============== 认证 ==============
+
+export interface LoginResponse {
+  token: string
+  session_id: string
+  expires_at: string
+}
+
+export interface LoginRequest {
+  pair_code: string
+}
+
+export const loginWithPairCode = (data: LoginRequest) => api.post<LoginResponse>('/auth/login', data)
+export const getPairCode = () => api.get<{ code: string; session_id: string; expires_at: string }>('/auth/paircode')
+export const verifyToken = () => api.get<{ valid: boolean; session_id: string }>('/auth/verify')
 
 // ============== LLM 配置 ==============
 

@@ -1,0 +1,8 @@
+[feishu.accounts.default]
+app_id = "cli_a9068e1201781cc4"
+app_secret = "zYNommBXUXSDzUaULXUfMhBJKjK6LyAZ"
+encrypt_key = ""
+verification_token = ""
+enabled = true
+connection_mode = "websocket"
+domain = "feishu"

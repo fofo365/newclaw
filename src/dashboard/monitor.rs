@@ -6,10 +6,10 @@
 // 3. 健康检查
 
 use axum::{
-    extract::{Extension, Query},
     response::{IntoResponse, Response},
     Json,
 };
+use axum::extract::{State, Query};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -73,7 +73,7 @@ pub struct LogsResponse {
 
 /// 获取日志列表
 pub async fn get_logs(
-    Extension(state): Extension<Arc<super::DashboardState>>,
+    State(state): State<Arc<super::DashboardState>>,
     Query(filter): Query<LogFilter>,
 ) -> Json<LogsResponse> {
     let logs = state.logs.read().await;
@@ -203,7 +203,7 @@ pub struct ErrorMetrics {
 
 /// 获取性能指标
 pub async fn get_metrics(
-    Extension(state): Extension<Arc<super::DashboardState>>,
+    State(state): State<Arc<super::DashboardState>>,
 ) -> Json<MetricsResponse> {
     let metrics = state.metrics.get_metrics().await;
     
@@ -266,7 +266,7 @@ pub struct ComponentStatus {
 
 /// 健康检查
 pub async fn health_check(
-    Extension(state): Extension<Arc<super::DashboardState>>,
+    State(state): State<Arc<super::DashboardState>>,
 ) -> Json<HealthResponse> {
     let metrics = state.metrics.get_metrics().await;
     
