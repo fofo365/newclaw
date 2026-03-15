@@ -48,7 +48,7 @@ export default function Login() {
           <Text type="secondary">请输入配对码登录</Text>
           <div style={{ marginTop: 8 }}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              v0.7.0 | 构建时间: 2026-03-16 01:59 CST
+              v0.7.0 | {__GIT_COMMIT_HASH__} | {__GIT_COMMIT_TIME__}
             </Text>
           </div>
         </div>
