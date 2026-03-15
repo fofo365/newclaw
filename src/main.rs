@@ -51,22 +51,22 @@ enum Commands {
     /// Start web gateway server
     Gateway {
         /// Port to listen on
-        #[arg(short, long, default_value = "3000")]
+        #[arg(long, default_value = "3000")]
         port: u16,
         
         /// Host to bind to
-        #[arg(short, long, default_value = "0.0.0.0")]
+        #[arg(long, default_value = "0.0.0.0")]
         host: String,
     },
     
     /// Start dashboard server
     Dashboard {
         /// Port to listen on
-        #[arg(short, long, default_value = "8080")]
+        #[arg(long, default_value = "8080")]
         port: u16,
         
         /// Host to bind to
-        #[arg(short, long, default_value = "0.0.0.0")]
+        #[arg(long, default_value = "0.0.0.0")]
         host: String,
     },
     
