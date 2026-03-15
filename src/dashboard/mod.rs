@@ -357,9 +357,13 @@ impl DashboardState {
         tracing::info!("Updated Feishu config: app_id={:?}, connection_mode={:?}", 
             payload.app_id, payload.connection_mode);
 
+        // 克隆 app_id 和 app_secret，避免借用冲突
+        let app_id_clone = feishu_config.app_id.clone();
+        let app_secret_clone = feishu_config.app_secret.clone();
+        let connection_mode = feishu_config.connection_mode.clone();
+
         // 如果配置了 app_id 和 app_secret，获取 access_token
-        if let (Some(app_id), Some(app_secret)) = 
-            (&feishu_config.app_id, &feishu_config.app_secret) {
+        if let (Some(app_id), Some(app_secret)) = (&app_id_clone, &app_secret_clone) {
             if !app_id.is_empty() && !app_secret.is_empty() {
                 // 获取 access_token
                 match self.fetch_feishu_access_token(app_id, app_secret).await {
@@ -376,16 +380,14 @@ impl DashboardState {
                 }
 
                 // 如果是 WebSocket 模式，获取 WebSocket URL
-                if feishu_config.connection_mode.as_deref() == Some("websocket") {
-                    if let Some(token) = &feishu_config.access_token {
-                        match self.fetch_feishu_websocket_url(token).await {
-                            Ok(ws_url) => {
-                                tracing::info!("✅ Successfully obtained Feishu WebSocket URL");
-                                feishu_config.websocket_url = Some(ws_url);
-                            }
-                            Err(e) => {
-                                tracing::error!("❌ Failed to get Feishu WebSocket URL: {}", e);
-                            }
+                if connection_mode.as_deref() == Some("websocket") {
+                    match self.fetch_feishu_websocket_url(app_id, app_secret).await {
+                        Ok(ws_url) => {
+                            tracing::info!("✅ Successfully obtained Feishu WebSocket URL");
+                            feishu_config.websocket_url = Some(ws_url);
+                        }
+                        Err(e) => {
+                            tracing::error!("❌ Failed to get Feishu WebSocket URL: {}", e);
                         }
                     }
                 }
@@ -452,17 +454,20 @@ impl DashboardState {
     }
 
     /// 获取飞书 WebSocket URL
-    async fn fetch_feishu_websocket_url(&self, access_token: &str) -> anyhow::Result<String> {
+    async fn fetch_feishu_websocket_url(&self, app_id: &str, app_secret: &str) -> anyhow::Result<String> {
         use serde_json::json;
         
         let client = reqwest::Client::new();
-        let url = "https://open.feishu.cn/open-apis/v1.3/cn/copilot/realtime/create_tcp";
+        let url = "https://open.feishu.cn/callback/ws/endpoint";
         
         let response = client
             .post(url)
-            .header("Content-Type", "application/json; charset=utf-8")
-            .header("Authorization", format!("Bearer {}", access_token))
-            .json(&json!({}))
+            .header("Content-Type", "application/json")
+            .header("locale", "zh")
+            .json(&json!({
+                "AppID": app_id,
+                "AppSecret": app_secret
+            }))
             .send()
             .await
             .map_err(|e| anyhow::anyhow!("HTTP request failed: {}", e))?;
@@ -472,18 +477,20 @@ impl DashboardState {
             .map_err(|e| anyhow::anyhow!("Failed to read response: {}", e))?;
         
         tracing::info!("Feishu WebSocket API response status: {}", status);
-        tracing::debug!("Feishu WebSocket API response body: {}", text);
+        tracing::info!("Feishu WebSocket API response body: {}", text);
         
         let json: serde_json::Value = serde_json::from_str(&text)
             .map_err(|e| anyhow::anyhow!("Failed to parse JSON: {}", e))?;
         
         if json["code"].as_i64() != Some(0) {
-            return Err(anyhow::anyhow!("Feishu API error: {:?}", json["msg"]));
+            return Err(anyhow::anyhow!("Feishu API error: code={}, msg={:?}", json["code"], json["msg"]));
         }
         
-        let ws_url = json["data"]["ws_url"]
+        // 响应格式: {"code":0,"data":{"URL":"wss://..."}}
+        let ws_url = json["data"]["URL"]
             .as_str()
-            .ok_or_else(|| anyhow::anyhow!("No ws_url in response"))?
+            .or_else(|| json["data"]["ws_url"].as_str())
+            .ok_or_else(|| anyhow::anyhow!("No URL in response"))?
             .to_string();
         
         Ok(ws_url)

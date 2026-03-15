@@ -199,44 +199,21 @@ impl FeishuWebSocketManager {
     async fn get_websocket_url(&self, app_id: &str, app_secret: &str) -> WebSocketResult<String> {
         use serde_json::json;
         
-        // 第一步：获取 access_token
-        let token_url = format!("{}/auth/v3/tenant_access_token/internal", self.config.base_url);
+        // 直接使用飞书官方 WebSocket endpoint API
+        // POST https://open.feishu.cn/callback/ws/endpoint
+        // 请求体: {"AppID": "xxx", "AppSecret": "xxx"}
         let client = reqwest::Client::new();
         
-        let request_body = json!({
-            "app_id": app_id,
-            "app_secret": app_secret,
-        });
-        
-        let response = client
-            .post(&token_url)
-            .header("Content-Type", "application/json")
-            .json(&request_body)
-            .send()
-            .await?;
-        
-        let json_response: serde_json::Value = response.json().await?;
-        
-        if json_response["code"].as_i64() != Some(0) {
-            return Err(WebSocketError::AuthFailed(format!(
-                "Failed to get access token: {:?}", json_response["msg"]
-            )));
-        }
-        
-        let access_token = json_response["tenant_access_token"]
-            .as_str()
-            .ok_or_else(|| WebSocketError::AuthFailed("No token in response".to_string()))?
-            .to_string();
-        
-        // 第二步：获取 WebSocket URL
-        // 注意：这个 API 需要在请求头中携带 Authorization
-        let ws_url_url = format!("{}/v1.3/cn/copilot/realtime/create_tcp", self.config.base_url);
+        let ws_url = "https://open.feishu.cn/callback/ws/endpoint";
         
         let ws_response = client
-            .post(&ws_url_url)
-            .header("Content-Type", "application/json; charset=utf-8")
-            .header("Authorization", format!("Bearer {}", access_token))
-            .json(&json!({}))
+            .post(ws_url)
+            .header("Content-Type", "application/json")
+            .header("locale", "zh")
+            .json(&json!({
+                "AppID": app_id,
+                "AppSecret": app_secret
+            }))
             .send()
             .await?;
         
@@ -244,20 +221,23 @@ impl FeishuWebSocketManager {
         let ws_response_text = ws_response.text().await?;
         
         info!("WebSocket API response status: {}", ws_response_status);
-        debug!("WebSocket API response body: {}", ws_response_text);
+        info!("WebSocket API response body: {}", ws_response_text);
         
         let ws_json: serde_json::Value = serde_json::from_str(&ws_response_text)
             .map_err(|e| WebSocketError::AuthFailed(format!("Invalid JSON response: {}", e)))?;
         
         if ws_json["code"].as_i64() != Some(0) {
             return Err(WebSocketError::AuthFailed(format!(
-                "Failed to get WebSocket URL: {:?}", ws_json["msg"]
+                "Failed to get WebSocket URL: code={}, msg={:?}", 
+                ws_json["code"], ws_json["msg"]
             )));
         }
         
-        let ws_url = ws_json["data"]["ws_url"]
+        // 响应格式: {"code":0,"data":{"URL":"wss://..."}}
+        let ws_url = ws_json["data"]["URL"]
             .as_str()
-            .ok_or_else(|| WebSocketError::AuthFailed("No ws_url in response".to_string()))?
+            .or_else(|| ws_json["data"]["ws_url"].as_str())
+            .ok_or_else(|| WebSocketError::AuthFailed("No URL in response".to_string()))?
             .to_string();
         
         info!("Successfully obtained WebSocket URL for app {}", app_id);
