@@ -650,6 +650,48 @@ impl DashboardState {
     }
 }
 
+/// 处理飞书 Webhook 事件
+pub async fn handle_feishu_webhook(
+    axum::extract::State(state): axum::extract::State<Arc<DashboardState>>,
+    axum::Json(payload): axum::Json<serde_json::Value>,
+) -> Result<axum::Json<serde_json::Value>, axum::http::StatusCode> {
+    use serde_json::json;
+    
+    tracing::info!("Received Feishu webhook event: {:?}", payload);
+    
+    // 处理 URL 验证（飞书配置事件订阅时会发送）
+    if payload["type"] == "url_verification" {
+        let challenge = payload["challenge"].as_str().unwrap_or("");
+        tracing::info!("Feishu URL verification, challenge: {}", challenge);
+        return Ok(axum::Json(json!({
+            "challenge": challenge
+        })));
+    }
+    
+    // 处理消息事件
+    if let Some(event) = payload.get("event") {
+        let event_type = event["type"].as_str().unwrap_or("unknown");
+        tracing::info!("Feishu event type: {}", event_type);
+        
+        // 处理文本消息
+        if event_type == "message" {
+            let open_id = event["open_id"].as_str().unwrap_or("");
+            let chat_id = event["chat_id"].as_str().unwrap_or("");
+            let content = event["content"].as_str().unwrap_or("");
+            
+            tracing::info!("Feishu message from {} in chat {}: {}", open_id, chat_id, content);
+            
+            // TODO: 转发消息给 LLM 处理
+            // 目前只记录日志
+        }
+    }
+    
+    Ok(axum::Json(json!({
+        "code": 0,
+        "msg": "success"
+    })))
+}
+
 async fn redirect_to_login() -> impl axum::response::IntoResponse {
     axum::response::Redirect::permanent("/login.html")
 }
@@ -729,6 +771,9 @@ pub fn create_dashboard_router(state: Arc<DashboardState>) -> Router {
 
         // Prometheus 指标端点 (v0.5.5) - 无需认证
         .route("/metrics", get(prometheus_metrics))
+
+        // 飞书 Webhook 接收事件
+        .route("/api/feishu/webhook", post(handle_feishu_webhook))
 
         // 静态文件服务（前端）
         // 默认重定向到登录页
