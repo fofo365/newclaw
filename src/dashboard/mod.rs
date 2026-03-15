@@ -765,6 +765,9 @@ pub async fn start_dashboard(config: DashboardConfig) -> anyhow::Result<()> {
     // 初始化 Prometheus 指标
     crate::metrics::prometheus::init_metrics();
 
+    // 设置全局 JWT Secret（用于 FromRequestParts）
+    auth::set_global_jwt_secret(config.jwt_secret.clone());
+
     // 默认配置文件路径
     let default_config_path = std::path::PathBuf::from("/etc/newclaw/config.toml");
 

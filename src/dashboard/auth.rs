@@ -251,6 +251,19 @@ pub struct AuthenticatedUser {
     pub session_id: String,
 }
 
+// 全局 JWT Secret（用于 FromRequestParts，因为无法访问 State）
+static GLOBAL_JWT_SECRET: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// 设置全局 JWT Secret（在 Dashboard 启动时调用）
+pub fn set_global_jwt_secret(secret: String) {
+    let _ = GLOBAL_JWT_SECRET.set(secret);
+}
+
+/// 获取全局 JWT Secret
+fn get_global_jwt_secret() -> &'static str {
+    GLOBAL_JWT_SECRET.get().map(|s| s.as_str()).unwrap_or("newclaw-dashboard-secret")
+}
+
 impl<S> axum::extract::FromRequestParts<S> for AuthenticatedUser
 where
     S: Send + Sync,
@@ -274,15 +287,16 @@ where
         
         let token = &auth_header[7..];
         
-        // TODO: 需要从 State 获取 auth_state，这里需要重构
-        // 暂时返回错误，需要在实际使用时传入 state
-        
-        // 解码 JWT 获取 session_id（不验证签名，简化实现）
+        // 使用全局 JWT Secret 验证 token
+        let secret = get_global_jwt_secret();
         let claims = decode::<Claims>(
             token,
-            &DecodingKey::from_secret("newclaw-dashboard-secret".as_bytes()),
+            &DecodingKey::from_secret(secret.as_bytes()),
             &Validation::default(),
-        ).map_err(|_| StatusCode::UNAUTHORIZED)?;
+        ).map_err(|e| {
+            tracing::warn!("JWT validation failed: {:?}", e);
+            StatusCode::UNAUTHORIZED
+        })?;
         
         Ok(Self {
             session_id: claims.claims.sub,

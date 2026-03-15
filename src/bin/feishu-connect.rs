@@ -5,6 +5,7 @@
 use anyhow::Result;
 use tracing::{info, error, warn};
 use std::sync::Arc;
+use chrono::Utc;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -28,6 +29,38 @@ async fn main() -> Result<()> {
     }
 
     info!("找到 {} 个飞书账号配置", config.feishu.accounts.len());
+
+    // 检查并刷新过期的token
+    for (account_name, account_config) in &config.feishu.accounts {
+        if !account_config.enabled {
+            info!("账号 {} 已禁用，跳过", account_name);
+            continue;
+        }
+
+        // 检查token是否过期或即将过期（提前5分钟刷新）
+        let need_refresh = account_config.access_token.is_none() 
+            || account_config.token_expires_at.map_or(true, |exp| {
+                let now = Utc::now().timestamp();
+                exp - now < 300 // 5分钟内过期
+            });
+
+        if need_refresh {
+            info!("账号 {} 的token已过期或即将过期，尝试刷新...", account_name);
+            
+            // 获取新token
+            match fetch_access_token(&account_config.app_id, &account_config.app_secret).await {
+                Ok((token, expires_in)) => {
+                    info!("✅ 成功刷新账号 {} 的access_token，有效期 {} 秒", account_name, expires_in);
+                    // TODO: 更新配置文件
+                }
+                Err(e) => {
+                    error!("❌ 刷新账号 {} 的token失败: {}", account_name, e);
+                }
+            }
+        } else {
+            info!("账号 {} 的token仍然有效", account_name);
+        }
+    }
 
     // 创建 WebSocket 管理器（使用默认事件处理器）
     let ws_config = newclaw::feishu_websocket::WebSocketConfig {
@@ -99,4 +132,37 @@ fn load_config() -> Result<newclaw::config::Config> {
     let config = newclaw::config::Config::from_file(&config_path)?;
     info!("已加载配置: {}", config_path);
     Ok(config)
+}
+
+/// 获取飞书 access_token
+async fn fetch_access_token(app_id: &str, app_secret: &str) -> Result<(String, u32)> {
+    use serde_json::json;
+    
+    let client = reqwest::Client::new();
+    let url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal";
+    
+    let response = client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .json(&json!({
+            "app_id": app_id,
+            "app_secret": app_secret,
+        }))
+        .send()
+        .await?;
+    
+    let json: serde_json::Value = response.json().await?;
+    
+    if json["code"].as_i64() != Some(0) {
+        return Err(anyhow::anyhow!("Feishu API error: {:?}", json["msg"]));
+    }
+    
+    let token = json["tenant_access_token"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("No token in response"))?
+        .to_string();
+    
+    let expires_in = json["expire"].as_u64().unwrap_or(7200) as u32;
+    
+    Ok((token, expires_in))
 }
