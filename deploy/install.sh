@@ -9,6 +9,7 @@ INSTALL_DIR="/usr/local"
 CONFIG_DIR="/etc/newclaw"
 DATA_DIR="/var/lib/newclaw"
 LOG_DIR="/var/log/newclaw"
+STATIC_DIR="${DATA_DIR}/static"
 
 echo "========================================"
 echo "  NewClaw v${VERSION} 安装脚本"
@@ -25,6 +26,7 @@ echo "📁 创建目录..."
 mkdir -p ${CONFIG_DIR}
 mkdir -p ${DATA_DIR}
 mkdir -p ${LOG_DIR}
+mkdir -p ${STATIC_DIR}
 
 # 复制二进制文件
 echo "📦 安装二进制文件..."
@@ -37,6 +39,20 @@ elif [ -f "./target/debug/newclaw" ]; then
 else
     echo "❌ 找不到 newclaw 二进制文件，请先运行 cargo build --release"
     exit 1
+fi
+
+# 复制静态文件（Dashboard UI）
+echo "🌐 安装 Dashboard 静态文件..."
+if [ -d "./static" ] && [ "$(ls -A ./static 2>/dev/null)" ]; then
+    cp -r ./static/* ${STATIC_DIR}/
+    echo "✅ Dashboard 静态文件已安装到 ${STATIC_DIR}"
+elif [ -d "./dashboard-ui/dist" ] && [ "$(ls -A ./dashboard-ui/dist 2>/dev/null)" ]; then
+    cp -r ./dashboard-ui/dist/* ${STATIC_DIR}/
+    echo "✅ Dashboard 静态文件已安装到 ${STATIC_DIR}"
+else
+    echo "⚠️  警告: 找不到 Dashboard 静态文件"
+    echo "   请先运行: cd dashboard-ui && npm run build"
+    echo "   然后运行: cp -r dashboard-ui/dist static"
 fi
 
 # 创建默认配置文件
