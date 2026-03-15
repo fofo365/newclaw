@@ -458,6 +458,18 @@ pub struct FeishuAccount {
     /// 域名
     #[serde(default)]
     pub domain: String,
+    
+    /// 飞书访问令牌（从飞书 API 获取，自动管理）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_token: Option<String>,
+    
+    /// 令牌过期时间（Unix 时间戳）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_expires_at: Option<i64>,
+    
+    /// WebSocket URL（从飞书 API 获取，自动管理）
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub websocket_url: Option<String>,
 }
 
 fn default_enabled() -> bool {
@@ -478,6 +490,9 @@ impl Default for FeishuAccount {
             enabled: true,
             connection_mode: "websocket".to_string(),
             domain: "feishu".to_string(),
+            access_token: None,
+            token_expires_at: None,
+            websocket_url: None,
         }
     }
 }

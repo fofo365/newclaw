@@ -119,6 +119,12 @@ pub struct FeishuConfig {
     pub encrypt_key: Option<String>,
     pub verification_token: Option<String>,
     pub connection_mode: Option<String>,
+    /// 飞书访问令牌（从飞书 API 获取）
+    pub access_token: Option<String>,
+    /// 令牌过期时间（Unix 时间戳）
+    pub token_expires_at: Option<i64>,
+    /// WebSocket URL（从飞书 API 获取）
+    pub websocket_url: Option<String>,
     pub configured: bool,
 }
 
@@ -130,6 +136,9 @@ impl Default for FeishuConfig {
             encrypt_key: std::env::var("FEISHU_ENCRYPT_KEY").ok(),
             verification_token: std::env::var("FEISHU_VERIFICATION_TOKEN").ok(),
             connection_mode: Some("http_callback".to_string()),
+            access_token: None,
+            token_expires_at: None,
+            websocket_url: None,
             configured: std::env::var("FEISHU_APP_ID").is_ok(),
         }
     }
@@ -345,7 +354,43 @@ impl DashboardState {
             feishu_config.connection_mode = Some(connection_mode.clone());
         }
 
-        tracing::info!("Updated Feishu config: app_id={:?}", payload.app_id);
+        tracing::info!("Updated Feishu config: app_id={:?}, connection_mode={:?}", 
+            payload.app_id, payload.connection_mode);
+
+        // 如果配置了 app_id 和 app_secret，获取 access_token
+        if let (Some(app_id), Some(app_secret)) = 
+            (&feishu_config.app_id, &feishu_config.app_secret) {
+            if !app_id.is_empty() && !app_secret.is_empty() {
+                // 获取 access_token
+                match self.fetch_feishu_access_token(app_id, app_secret).await {
+                    Ok((token, expires_in)) => {
+                        tracing::info!("✅ Successfully obtained Feishu access_token");
+                        feishu_config.access_token = Some(token);
+                        feishu_config.token_expires_at = Some(
+                            chrono::Utc::now().timestamp() + expires_in as i64
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!("❌ Failed to get Feishu access_token: {}", e);
+                    }
+                }
+
+                // 如果是 WebSocket 模式，获取 WebSocket URL
+                if feishu_config.connection_mode.as_deref() == Some("websocket") {
+                    if let Some(token) = &feishu_config.access_token {
+                        match self.fetch_feishu_websocket_url(token).await {
+                            Ok(ws_url) => {
+                                tracing::info!("✅ Successfully obtained Feishu WebSocket URL");
+                                feishu_config.websocket_url = Some(ws_url);
+                            }
+                            Err(e) => {
+                                tracing::error!("❌ Failed to get Feishu WebSocket URL: {}", e);
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // 释放锁
         drop(feishu_config);
@@ -357,7 +402,91 @@ impl DashboardState {
             tracing::warn!("No config file path set, Feishu config not persisted");
         }
 
+        // 如果是 WebSocket 模式且有 WebSocket URL，启动连接
+        let feishu_config = self.feishu_config.read().await;
+        if feishu_config.connection_mode.as_deref() == Some("websocket") {
+            if let (Some(app_id), Some(ws_url)) = 
+                (&feishu_config.app_id, &feishu_config.websocket_url) {
+                tracing::info!("🚀 Starting Feishu WebSocket connection for app: {}", app_id);
+                // TODO: 启动 WebSocket 连接
+                // self.start_feishu_websocket(app_id, ws_url).await?;
+            }
+        }
+
         Ok(())
+    }
+
+    /// 获取飞书 access_token
+    async fn fetch_feishu_access_token(&self, app_id: &str, app_secret: &str) -> anyhow::Result<(String, u32)> {
+        use serde_json::json;
+        
+        let client = reqwest::Client::new();
+        let url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal";
+        
+        let response = client
+            .post(url)
+            .header("Content-Type", "application/json")
+            .json(&json!({
+                "app_id": app_id,
+                "app_secret": app_secret,
+            }))
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("HTTP request failed: {}", e))?;
+        
+        let json: serde_json::Value = response.json().await
+            .map_err(|e| anyhow::anyhow!("Failed to parse response: {}", e))?;
+        
+        if json["code"].as_i64() != Some(0) {
+            return Err(anyhow::anyhow!("Feishu API error: {:?}", json["msg"]));
+        }
+        
+        let token = json["tenant_access_token"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("No token in response"))?
+            .to_string();
+        
+        let expires_in = json["expire"].as_u64().unwrap_or(7200) as u32;
+        
+        Ok((token, expires_in))
+    }
+
+    /// 获取飞书 WebSocket URL
+    async fn fetch_feishu_websocket_url(&self, access_token: &str) -> anyhow::Result<String> {
+        use serde_json::json;
+        
+        let client = reqwest::Client::new();
+        let url = "https://open.feishu.cn/open-apis/v1.3/cn/copilot/realtime/create_tcp";
+        
+        let response = client
+            .post(url)
+            .header("Content-Type", "application/json; charset=utf-8")
+            .header("Authorization", format!("Bearer {}", access_token))
+            .json(&json!({}))
+            .send()
+            .await
+            .map_err(|e| anyhow::anyhow!("HTTP request failed: {}", e))?;
+        
+        let status = response.status();
+        let text = response.text().await
+            .map_err(|e| anyhow::anyhow!("Failed to read response: {}", e))?;
+        
+        tracing::info!("Feishu WebSocket API response status: {}", status);
+        tracing::debug!("Feishu WebSocket API response body: {}", text);
+        
+        let json: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| anyhow::anyhow!("Failed to parse JSON: {}", e))?;
+        
+        if json["code"].as_i64() != Some(0) {
+            return Err(anyhow::anyhow!("Feishu API error: {:?}", json["msg"]));
+        }
+        
+        let ws_url = json["data"]["ws_url"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("No ws_url in response"))?
+            .to_string();
+        
+        Ok(ws_url)
     }
 
     /// 保存飞书配置到文件
@@ -377,27 +506,41 @@ impl DashboardState {
             crate::config::Config::default()
         };
 
-        // 更新飞书配置（使用第一个账号）
-        let app_id = feishu_config.app_id.as_ref().and_then(|s| if s.is_empty() { None } else { Some(s.clone()) });
-        let app_secret = feishu_config.app_secret.as_ref().and_then(|s| if s.is_empty() { None } else { Some(s.clone()) });
-        let encrypt_key = feishu_config.encrypt_key.as_ref().and_then(|s| if s.is_empty() { None } else { Some(s.clone()) });
-        let verification_token = feishu_config.verification_token.as_ref().and_then(|s| if s.is_empty() { None } else { Some(s.clone()) });
-        let connection_mode = feishu_config.connection_mode.as_ref().and_then(|s| if s.is_empty() { None } else { Some(s.clone()) });
+        // 更新飞书配置（使用第一个账号）- 保存原文，不是掩码
+        let app_id = feishu_config.app_id.clone();
+        let app_secret = feishu_config.app_secret.clone();
+        let encrypt_key = feishu_config.encrypt_key.clone();
+        let verification_token = feishu_config.verification_token.clone();
+        let connection_mode = feishu_config.connection_mode.clone();
+        let access_token = feishu_config.access_token.clone();
+        let token_expires_at = feishu_config.token_expires_at;
+        let websocket_url = feishu_config.websocket_url.clone();
 
-        if let (Some(app_id), Some(app_secret)) = (app_id, app_secret) {
-            // 更新或添加第一个账号
-            config.feishu.accounts.entry("default".to_string()).or_insert_with(crate::config::FeishuAccount::default);
-            if let Some(account) = config.feishu.accounts.get_mut("default") {
-                account.app_id = app_id;
-                account.app_secret = app_secret;
-                if let Some(key) = encrypt_key {
-                    account.encrypt_key = key;
-                }
-                if let Some(token) = verification_token {
-                    account.verification_token = token;
-                }
-                if let Some(mode) = connection_mode {
-                    account.connection_mode = mode;
+        if let (Some(app_id), Some(app_secret)) = (&app_id, &app_secret) {
+            if !app_id.is_empty() && !app_secret.is_empty() {
+                // 更新或添加第一个账号
+                config.feishu.accounts.entry("default".to_string())
+                    .or_insert_with(crate::config::FeishuAccount::default);
+                
+                if let Some(account) = config.feishu.accounts.get_mut("default") {
+                    // 保存原文凭证
+                    account.app_id = app_id.clone();
+                    account.app_secret = app_secret.clone();
+                    
+                    if let Some(key) = encrypt_key {
+                        account.encrypt_key = key;
+                    }
+                    if let Some(token) = verification_token {
+                        account.verification_token = token;
+                    }
+                    if let Some(mode) = connection_mode {
+                        account.connection_mode = mode;
+                    }
+                    
+                    // 保存获取到的 token 和 WebSocket URL
+                    account.access_token = access_token;
+                    account.token_expires_at = token_expires_at;
+                    account.websocket_url = websocket_url;
                 }
             }
         }
@@ -410,7 +553,7 @@ impl DashboardState {
         tokio::fs::write(config_path, toml_content).await
             .map_err(|e| anyhow::anyhow!("Failed to write config file: {}", e))?;
 
-        tracing::info!("Saved Feishu config to {}", config_path.display());
+        tracing::info!("✅ Saved Feishu config to {} (with access_token and websocket_url)", config_path.display());
 
         Ok(())
     }

@@ -321,6 +321,10 @@ pub struct FeishuConfigResponse {
     pub connection_mode: String,
     pub webhook_url: Option<String>,
     pub events_enabled: bool,
+    /// 是否已获取 access_token
+    pub has_token: bool,
+    /// 是否已获取 WebSocket URL
+    pub has_websocket_url: bool,
 }
 
 /// 飞书配置更新请求
@@ -339,7 +343,7 @@ pub async fn get_feishu_config(
 ) -> Result<Json<FeishuConfigResponse>, AppError> {
     let feishu_config = state.feishu_config.read().await;
 
-    // 隐藏敏感信息
+    // 隐藏敏感信息 - 只返回掩码后的 app_id 用于显示
     let masked_app_id = feishu_config.app_id.as_ref().map(|id| {
         if id.len() > 4 {
             format!("{}****", &id[..4])
@@ -348,12 +352,18 @@ pub async fn get_feishu_config(
         }
     });
 
+    // 检查是否有 token 和 WebSocket URL
+    let has_token = feishu_config.access_token.is_some();
+    let has_websocket_url = feishu_config.websocket_url.is_some();
+
     let response = FeishuConfigResponse {
         configured: feishu_config.configured,
         app_id: masked_app_id,
         connection_mode: feishu_config.connection_mode.clone().unwrap_or_else(|| "http_callback".to_string()),
         webhook_url: Some(format!("{}/api/feishu/webhook", "http://localhost:3001")),
         events_enabled: true,
+        has_token,
+        has_websocket_url,
     };
 
     Ok(Json(response))
