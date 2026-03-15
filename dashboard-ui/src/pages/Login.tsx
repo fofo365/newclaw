@@ -46,6 +46,11 @@ export default function Login() {
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <Title level={2} style={{ margin: 0 }}>NewClaw Dashboard</Title>
           <Text type="secondary">请输入配对码登录</Text>
+          <div style={{ marginTop: 8 }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              v0.7.0 | 构建时间: 2026-03-16 01:59 CST
+            </Text>
+          </div>
         </div>
 
         {error && (
