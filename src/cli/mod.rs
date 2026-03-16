@@ -7,18 +7,23 @@
 // 4. 工具执行
 // 5. 通道层抽象 (v0.7.0)
 // 6. 权限控制 (v0.7.0)
+// 7. 记忆管理 (v0.7.0) - 多层隔离
+// 8. 策略管理 (v0.7.0) - 动态调整
 
 use std::io::{self, Write};
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use clap::Parser;
 use crate::config::Config;
 use crate::llm::{
     LLMProviderV3, OpenAIProvider, ClaudeProvider, GlmProvider, GlmConfig, GlmRegion, GlmProviderType,
-    ChatRequest, Message, MessageRole, TokenUsage, ToolDefinition, is_glm_alias, create_glm_provider
+    Message, MessageRole, is_glm_alias
 };
 use crate::tools::ToolRegistry;
-use crate::channel::{ChannelPermission, ChannelType, ChannelMember, ChannelRole};
-use crate::tools::init_builtin_tools_with_permissions;
+use crate::channel::{ChannelPermission, ChannelType, ChannelMember, ChannelRole, ChannelProcessor, ProcessorConfig};
+use crate::channel::{ChannelMessage, MessageContent};
+use crate::memory::{SQLiteMemoryStorage, StorageConfig};
+use crate::context::StrategyEngine;
 
 /// NewClaw CLI
 #[derive(Parser, Debug)]
@@ -158,26 +163,68 @@ async fn run_interactive_mode(config: &Config) -> anyhow::Result<()> {
     println!("Type 'exit' or 'quit' to exit");
     println!("Type 'help' for more commands\n");
     
-    // 创建 Provider
-    let provider: Option<Box<dyn LLMProviderV3>> = if api_key.is_ok() {
-        Some(create_provider(config)?)
-    } else {
-        None
+    // 创建工具注册表
+    let tool_registry = Arc::new(ToolRegistry::new());
+    
+    // 创建权限管理器
+    let permissions = Arc::new(ChannelPermission::new("./data/cli_permissions.json"));
+    
+    // 初始化内置工具
+    if let Err(e) = crate::tools::init_builtin_tools_with_permissions(
+        &tool_registry,
+        std::path::PathBuf::from("./data"),
+        std::path::PathBuf::from("."),
+        Some(Arc::clone(&permissions)),
+    ).await {
+        eprintln!("Warning: Failed to initialize some tools: {}", e);
+    }
+    
+    // 创建 ChannelProcessor - v0.7.0
+    let processor_config = ProcessorConfig {
+        enable_memory: true,
+        enable_strategy: true,
+        default_strategy: crate::context::StrategyType::Balanced,
+        max_context_tokens: 8000,
+        memory_search_limit: 5,
+        default_agent_id: "cli".to_string(),
+        default_namespace: "default".to_string(),
     };
     
-    // 创建权限管理器 (v0.7.0)
-    let permissions = Arc::new(ChannelPermission::new("./data/permissions.json"));
+    // 创建记忆存储
+    let memory_storage = Arc::new(SQLiteMemoryStorage::new(StorageConfig {
+        db_path: std::path::PathBuf::from("data/cli_memory.db"),
+        ..Default::default()
+    })?);
     
-    // 创建工具注册表
-    let tool_registry = ToolRegistry::new();
-    register_tools(&tool_registry, Arc::clone(&permissions)).await;
+    // 创建策略引擎
+    let strategy_engine = Arc::new(RwLock::new(StrategyEngine::new()?));
     
-    // 创建 CLI 通道成员 (v0.7.0)
+    // 创建处理器
+    let mut processor = ChannelProcessor::new(
+        Arc::clone(&tool_registry),
+        Arc::clone(&permissions),
+        processor_config,
+    )
+    .with_memory(memory_storage)
+    .with_strategy(strategy_engine);
+    
+    // 设置 LLM Provider
+    if let Ok(ref api_key) = api_key {
+        let llm_provider = create_llm_provider(config, api_key)?;
+        processor = processor.with_llm(llm_provider, config.get_model());
+    }
+    
+    let processor = Arc::new(RwLock::new(processor));
+    
+    // 对话历史
+    let conversation_history: Arc<RwLock<Vec<Message>>> = Arc::new(RwLock::new(Vec::new()));
+    
+    // CLI 通道成员
     let cli_member = ChannelMember {
         channel_type: ChannelType::Cli,
         member_id: "cli_user".to_string(),
         display_name: Some("CLI User".to_string()),
-        role: ChannelRole::Admin, // CLI 用户默认为管理员
+        role: ChannelRole::Admin,
     };
     
     loop {
@@ -219,11 +266,24 @@ async fn run_interactive_mode(config: &Config) -> anyhow::Result<()> {
                 print!("\x1B[2J\x1B[1;1H"); // ANSI clear screen
                 continue;
             }
+            "strategy" => {
+                print_strategy_help(&processor).await;
+                continue;
+            }
+            "memory" => {
+                print_memory_stats(&processor).await;
+                continue;
+            }
             _ => {}
         }
         
-        // 处理聊天请求
-        match process_chat(&provider, input, config, &tool_registry).await {
+        // 处理聊天请求 - 使用 ChannelProcessor
+        match process_chat_with_processor(
+            &processor,
+            input,
+            &cli_member,
+            &conversation_history,
+        ).await {
             Ok(response) => {
                 println!("🤖 {}\n", response);
             }
@@ -237,8 +297,7 @@ async fn run_interactive_mode(config: &Config) -> anyhow::Result<()> {
 }
 
 /// 创建 LLM Provider
-fn create_provider(config: &Config) -> anyhow::Result<Box<dyn LLMProviderV3>> {
-    let api_key = config.get_api_key()?;
+fn create_llm_provider(config: &Config, api_key: &str) -> anyhow::Result<Arc<dyn LLMProviderV3>> {
     let provider_lower = config.llm.provider.to_lowercase();
     
     // 检查是否为 GLM 系列
@@ -256,7 +315,7 @@ fn create_provider(config: &Config) -> anyhow::Result<Box<dyn LLMProviderV3>> {
         };
         
         let provider = if let Some(ref base_url) = glm_config.base_url {
-            GlmProvider::with_config(api_key, GlmConfig {
+            GlmProvider::with_config(api_key.to_string(), GlmConfig {
                 region,
                 provider_type,
                 model: config.get_model(),
@@ -264,7 +323,7 @@ fn create_provider(config: &Config) -> anyhow::Result<Box<dyn LLMProviderV3>> {
                 max_tokens: config.llm.max_tokens,
             }).set_base_url(base_url.clone())
         } else {
-            GlmProvider::with_config(api_key, GlmConfig {
+            GlmProvider::with_config(api_key.to_string(), GlmConfig {
                 region,
                 provider_type,
                 model: config.get_model(),
@@ -273,25 +332,25 @@ fn create_provider(config: &Config) -> anyhow::Result<Box<dyn LLMProviderV3>> {
             })
         };
         
-        return Ok(Box::new(provider));
+        return Ok(Arc::new(provider));
     }
     
     match provider_lower.as_str() {
         "openai" => {
-            let mut p = OpenAIProvider::new(api_key);
+            let mut p = OpenAIProvider::new(api_key.to_string());
             if let Some(base_url) = &config.llm.openai.base_url {
                 p = p.with_base_url(base_url.clone());
             }
             p = p.with_default_model(config.get_model());
-            Ok(Box::new(p))
+            Ok(Arc::new(p))
         }
         "claude" => {
-            let mut p = ClaudeProvider::new(api_key);
+            let mut p = ClaudeProvider::new(api_key.to_string());
             if let Some(base_url) = &config.llm.claude.base_url {
                 p = p.with_base_url(base_url.clone());
             }
             p = p.with_default_model(config.get_model());
-            Ok(Box::new(p))
+            Ok(Arc::new(p))
         }
         other => {
             Err(anyhow::anyhow!(
@@ -302,133 +361,103 @@ fn create_provider(config: &Config) -> anyhow::Result<Box<dyn LLMProviderV3>> {
     }
 }
 
-/// 处理聊天请求
-async fn process_chat(
-    provider: &Option<Box<dyn LLMProviderV3>>,
+/// 处理聊天请求 - 使用 ChannelProcessor
+async fn process_chat_with_processor(
+    processor: &Arc<RwLock<ChannelProcessor>>,
     input: &str,
-    config: &Config,
-    tool_registry: &ToolRegistry,
+    cli_member: &ChannelMember,
+    conversation_history: &Arc<RwLock<Vec<Message>>>,
 ) -> anyhow::Result<String> {
-    if let Some(p) = provider {
-        // 获取工具定义
-        let tool_definitions = get_tool_definitions(tool_registry).await;
-        
-        let mut messages = vec![Message {
+    // 构建通道消息
+    let message = ChannelMessage {
+        message_id: format!("cli_{}", chrono::Utc::now().timestamp_millis()),
+        channel_type: ChannelType::Cli,
+        sender: cli_member.clone(),
+        chat_id: "cli_session".to_string(),
+        content: MessageContent::Text(input.to_string()),
+        timestamp: chrono::Utc::now().timestamp(),
+        reply_to: None,
+        metadata: serde_json::Map::new(),
+    };
+    
+    // 获取历史消息
+    let history = conversation_history.read().await.clone();
+    
+    // 使用处理器处理消息
+    let proc = processor.read().await;
+    let result = proc.process(&message, &history).await?;
+    
+    // 更新对话历史
+    {
+        let mut history = conversation_history.write().await;
+        history.push(Message {
             role: MessageRole::User,
             content: input.to_string(),
             tool_calls: None,
             tool_call_id: None,
-        }];
+        });
+        history.push(Message {
+            role: MessageRole::Assistant,
+            content: result.content.clone(),
+            tool_calls: None,
+            tool_call_id: None,
+        });
         
-        // 工具调用循环（最多 5 轮）
-        let max_tool_rounds = 5;
-        
-        for _round in 0..max_tool_rounds {
-            let request = ChatRequest {
-                messages: messages.clone(),
-                model: config.get_model(),
-                temperature: config.llm.temperature,
-                max_tokens: Some(config.llm.max_tokens),
-                top_p: None,
-                stop: None,
-                tools: if tool_definitions.is_empty() { None } else { Some(tool_definitions.clone()) },
-            };
-            
-            let response = p.chat(request).await?;
-            
-            // 检查是否有工具调用
-            if let Some(tool_calls) = &response.message.tool_calls {
-                if tool_calls.is_empty() {
-                    return Ok(response.message.content);
-                }
-                
-                // 将 assistant 消息添加到历史
-                messages.push(Message {
-                    role: MessageRole::Assistant,
-                    content: response.message.content.clone(),
-                    tool_calls: Some(tool_calls.clone()),
-                    tool_call_id: None,
-                });
-                
-                // 执行每个工具调用
-                for tool_call in tool_calls {
-                    println!("🔧 Calling tool: {}...", tool_call.name);
-                    
-                    let args: serde_json::Value = serde_json::from_str(&tool_call.arguments)
-                        .unwrap_or_else(|_| serde_json::json!({}));
-                    
-                    let tool_result = match tool_registry.call(&tool_call.name, args).await {
-                        Ok(result) => result.to_string(),
-                        Err(e) => serde_json::json!({"error": e.to_string()}).to_string(),
-                    };
-                    
-                    println!("📤 Tool result: {}", if tool_result.len() > 200 {
-                        format!("{}...", &tool_result[..200])
-                    } else {
-                        tool_result.clone()
-                    });
-                    
-                    messages.push(Message {
-                        role: MessageRole::Tool,
-                        content: tool_result,
-                        tool_calls: None,
-                        tool_call_id: Some(tool_call.id.clone()),
-                    });
-                }
-                
-                continue;
-            }
-            
-            return Ok(response.message.content);
+        // 限制历史长度
+        if history.len() > 20 {
+            let start = history.len() - 20;
+            *history = history.split_off(start);
         }
-        
-        Err(anyhow::anyhow!("Exceeded maximum tool call rounds"))
-    } else {
-        // Mock 模式
-        let env_hint = if is_glm_alias(&config.llm.provider) {
-            "GLM_API_KEY"
-        } else {
-            &format!("{}_API_KEY", config.llm.provider.to_uppercase())
-        };
-        
-        Ok(format!(
-            "[Mock Mode] Processed: {}\n\nSet {} to enable real responses.",
-            input, env_hint
-        ))
     }
-}
-
-/// 从 ToolRegistry 获取工具定义
-async fn get_tool_definitions(registry: &ToolRegistry) -> Vec<ToolDefinition> {
-    let tools = registry.list_tools().await;
-    tools
-        .into_iter()
-        .map(|t| ToolDefinition {
-            name: t.name,
-            description: t.description,
-            parameters: t.parameters,
-        })
-        .collect()
-}
-
-/// 注册工具 (使用新的权限系统)
-async fn register_tools(registry: &ToolRegistry, permissions: Arc<ChannelPermission>) {
-    use std::path::PathBuf;
-    use crate::tools::init_builtin_tools_with_permissions;
     
-    // 初始化内置工具 (带权限管理)
-    if let Err(e) = init_builtin_tools_with_permissions(
-        registry,
-        PathBuf::from("./data"),
-        PathBuf::from("."),
-        Some(permissions),
-    ).await {
-        eprintln!("Warning: Failed to initialize some tools: {}", e);
+    // 显示处理信息
+    if result.memory_count > 0 || result.tool_calls > 0 {
+        println!("📊 [记忆: {}, 工具: {}, 策略: {:?}, 延迟: {}ms]",
+            result.memory_count,
+            result.tool_calls,
+            result.strategy,
+            result.latency_ms
+        );
     }
+    
+    Ok(result.content)
+}
+
+/// 打印策略帮助
+async fn print_strategy_help(processor: &Arc<RwLock<ChannelProcessor>>) {
+    let proc = processor.read().await;
+    let stats = proc.stats();
+    
+    println!("\n📊 策略管理:");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("  记忆启用: {}", stats.memory_enabled);
+    println!("  策略启用: {}", stats.strategy_enabled);
+    println!("  Agent ID: {}", stats.agent_id);
+    println!("  命名空间: {}", stats.namespace);
+    println!("\n  可用策略:");
+    println!("    balanced    - 平衡模式 (默认)");
+    println!("    smart       - 智能截断");
+    println!("    time_decay  - 时间衰减");
+    println!("    minimize    - 最小化 Token");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+}
+
+/// 打印记忆统计
+async fn print_memory_stats(processor: &Arc<RwLock<ChannelProcessor>>) {
+    let proc = processor.read().await;
+    let stats = proc.stats();
+    
+    println!("\n🧠 记忆系统:");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    println!("  启用状态: {}", stats.memory_enabled);
+    println!("  隔离维度: user={}, channel=cli, agent={}, ns={}",
+        "cli_user", stats.agent_id, stats.namespace);
+    println!("  数据库: data/cli_memory.db");
+    println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 }
 
 /// 列出工具
-async fn list_tools(registry: &ToolRegistry) {
+async fn list_tools(registry: &Arc<ToolRegistry>) {
     let tools = registry.list_tools().await;
     
     if tools.is_empty() {
@@ -505,20 +534,11 @@ fn print_help() {
     println!("  tools     - List available tools");
     println!("  config    - Show current configuration");
     println!("  providers - List supported providers");
+    println!("  strategy  - Show strategy status");
+    println!("  memory    - Show memory system status");
     println!("  clear     - Clear the screen");
     println!("  exit      - Exit the program");
     println!("  quit      - Exit the program");
-    println!();
-    println!("📦 v0.7.0 New Commands (use in CLI mode):");
-    println!("  task      - Task management (list/create/status/cancel)");
-    println!("  dag       - DAG workflow management (list/create/run/status)");
-    println!("  schedule  - Schedule management (list/add/remove)");
-    println!("  memory    - Memory management (store/search/list/delete)");
-    println!("  federation- Federation management (status/sync/nodes)");
-    println!("  audit     - Audit log queries (query/stats/export)");
-    println!("  watchdog  - Watchdog monitoring (status/lease/check/recovery)");
-    println!("  strategy  - Context strategy (list/get/set/config)");
-    println!("  session   - Session management (list/create/switch/close)");
     println!();
     println!("📝 Environment Variables:");
     println!("  LLM_PROVIDER    - Provider (openai, claude, glm, glm-cn, z.ai, etc.)");

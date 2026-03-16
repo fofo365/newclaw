@@ -109,6 +109,8 @@ pub struct DashboardState {
     pub config_path: Option<std::path::PathBuf>,
     /// 工具注册表（用于工具调用）
     pub tool_registry: Arc<crate::tools::ToolRegistry>,
+    /// 通道处理器 - v0.7.0 集成记忆/策略/上下文
+    pub channel_processor: Option<Arc<RwLock<crate::channel::ChannelProcessor>>>,
 }
 
 /// 飞书配置
@@ -162,7 +164,69 @@ impl DashboardState {
             feishu_config: Arc::new(RwLock::new(FeishuConfig::default())),
             config_path: None,
             tool_registry: Arc::new(crate::tools::ToolRegistry::new()),
+            channel_processor: None,
         }
+    }
+
+    /// 创建带 LLM Provider 和 ChannelProcessor 的 DashboardState
+    pub async fn with_llm_and_processor(
+        config: DashboardConfig,
+        llm_config: crate::config::LLMConfig,
+    ) -> anyhow::Result<Self> {
+        // 创建 GLM Provider
+        let provider = Self::create_llm_provider(&llm_config)?;
+
+        let auth_state = Arc::new(auth::AuthState::new(
+            config.jwt_secret.clone(),
+            config.session_timeout_secs,
+        ));
+
+        // 创建工具注册表和权限
+        let tool_registry = Arc::new(crate::tools::ToolRegistry::new());
+        let permissions = Arc::new(crate::channel::ChannelPermission::new("./data/dashboard_permissions.json"));
+
+        // 创建 ChannelProcessor
+        let processor_config = crate::channel::ProcessorConfig {
+            enable_memory: true,
+            enable_strategy: true,
+            default_strategy: crate::context::StrategyType::Balanced,
+            max_context_tokens: 8000,
+            memory_search_limit: 5,
+            default_agent_id: "dashboard".to_string(),
+            default_namespace: "default".to_string(),
+        };
+
+        let memory_storage = Arc::new(crate::memory::SQLiteMemoryStorage::new(
+            crate::memory::StorageConfig {
+                db_path: std::path::PathBuf::from("data/dashboard_memory.db"),
+                ..Default::default()
+            }
+        )?);
+
+        let strategy_engine = Arc::new(RwLock::new(crate::context::StrategyEngine::new()?));
+
+        let processor = crate::channel::ChannelProcessor::new(
+            Arc::clone(&tool_registry),
+            Arc::clone(&permissions),
+            processor_config,
+        )
+        .with_memory(memory_storage)
+        .with_strategy(strategy_engine)
+        .with_llm(Arc::clone(&provider), llm_config.model.clone());
+
+        Ok(Self {
+            config,
+            metrics: Arc::new(MetricsCollector::new()),
+            sessions: Arc::new(RwLock::new(Vec::new())),
+            logs: Arc::new(RwLock::new(Vec::new())),
+            auth_state,
+            llm_provider: Some(provider),
+            llm_config: Arc::new(RwLock::new(Some(llm_config))),
+            feishu_config: Arc::new(RwLock::new(FeishuConfig::default())),
+            config_path: None,
+            tool_registry,
+            channel_processor: Some(Arc::new(RwLock::new(processor))),
+        })
     }
 
     /// 创建带 LLM Provider 的 DashboardState
@@ -184,11 +248,12 @@ impl DashboardState {
             sessions: Arc::new(RwLock::new(Vec::new())),
             logs: Arc::new(RwLock::new(Vec::new())),
             auth_state,
-            llm_provider: Some(Arc::new(provider)),
-            llm_config: Arc::new(RwLock::new(Some(llm_config))),
+            llm_provider: Some(provider),
+            llm_config: Arc::new(RwLock::new(Some(llm_config.clone()))),
             feishu_config: Arc::new(RwLock::new(FeishuConfig::default())),
             config_path: None,
             tool_registry: Arc::new(crate::tools::ToolRegistry::new()),
+            channel_processor: None,
         })
     }
 
@@ -215,7 +280,7 @@ impl DashboardState {
         // 如果有 LLM 配置，创建 Provider
         let llm_provider: Option<Arc<dyn crate::llm::LLMProviderV3>> = if let Some(ref llm_cfg) = llm_config {
             match Self::create_llm_provider(llm_cfg) {
-                Ok(provider) => Some(Arc::new(provider) as Arc<dyn crate::llm::LLMProviderV3>),
+                Ok(provider) => Some(provider),
                 Err(e) => {
                     tracing::warn!("Failed to create LLM provider: {}", e);
                     None
@@ -242,6 +307,7 @@ impl DashboardState {
             feishu_config: Arc::new(RwLock::new(FeishuConfig::default())),
             config_path: Some(config_path),
             tool_registry: Arc::new(crate::tools::ToolRegistry::new()),
+            channel_processor: None,
         })
     }
 
@@ -601,7 +667,7 @@ impl DashboardState {
     /// 创建 LLM Provider
     fn create_llm_provider(
         llm_config: &crate::config::LLMConfig,
-    ) -> anyhow::Result<crate::llm::GlmProvider> {
+    ) -> anyhow::Result<Arc<dyn crate::llm::LLMProviderV3>> {
         use crate::llm::{GlmProvider, GlmConfig, GlmRegion, GlmProviderType};
 
         let provider_lower = llm_config.provider.to_lowercase();
@@ -628,7 +694,7 @@ impl DashboardState {
             max_tokens: llm_config.max_tokens,
         };
 
-        Ok(GlmProvider::with_config(api_key, glm_config))
+        Ok(Arc::new(GlmProvider::with_config(api_key, glm_config)))
     }
 
     /// 检查是否为 GLM Provider

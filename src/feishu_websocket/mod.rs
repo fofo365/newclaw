@@ -1,4 +1,4 @@
-// NewClaw v0.4.0 - 飞书 WebSocket 连接管理
+// NewClaw v0.7.0 - 飞书 WebSocket 连接管理
 //
 // 核心功能：
 // 1. WebSocket 连接池管理
@@ -8,6 +8,7 @@
 // 5. 事件轮询系统
 // 6. 消息类型支持
 // 7. 错误重试机制
+// 8. Token 自动刷新 (v0.7.0)
 
 pub mod pool;
 pub mod heartbeat;
@@ -19,6 +20,7 @@ pub mod messages;
 pub mod retry;
 pub mod frame;
 pub mod tools;
+pub mod token_manager;
 
 // Re-exports
 pub use pool::{ConnectionPool, Connection, ConnectionState};
@@ -39,6 +41,9 @@ pub use retry::{
     CacheFallback, DefaultValueFallback,
 };
 pub use tools::{ToolManager, ToolCallRequest, ToolResult, build_tools_system_prompt};
+pub use token_manager::{
+    TokenManager, TokenManagerConfig, TokenState, TokenType,
+};
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
