@@ -14,10 +14,12 @@ use crate::tools::{
     MemoryTool, ToolRegistry, BrowserTool, CanvasTool,
     SessionsTool, SubagentsTool, NodesTool,
     FeishuDocTool, FeishuBitableTool, FeishuDriveTool, FeishuWikiTool, FeishuChatTool,
-    TtsTool,
+    TtsTool, PermissionTool, ChannelConfigTool,
 };
 use std::path::PathBuf;
+use std::sync::Arc;
 use tracing::info;
+use crate::channel::ChannelPermission;
 
 /// 初始化所有内置工具
 ///
@@ -27,6 +29,21 @@ pub async fn init_builtin_tools(
     registry: &ToolRegistry,
     data_dir: PathBuf,
     openclaw_workspace: PathBuf,
+) -> anyhow::Result<()> {
+    init_builtin_tools_with_permissions(
+        registry,
+        data_dir,
+        openclaw_workspace,
+        None,
+    ).await
+}
+
+/// 初始化所有内置工具（带权限管理）
+pub async fn init_builtin_tools_with_permissions(
+    registry: &ToolRegistry,
+    data_dir: PathBuf,
+    openclaw_workspace: PathBuf,
+    permissions: Option<Arc<ChannelPermission>>,
 ) -> anyhow::Result<()> {
     let mut tool_count = 0;
 
@@ -114,8 +131,20 @@ pub async fn init_builtin_tools(
     registry.register(TtsTool::new()).await?;
     tool_count += 1;
 
+    // ==================== 权限和配置工具 ====================
+    
+    if let Some(perm) = permissions {
+        // 权限管理工具
+        registry.register(PermissionTool::new(Arc::clone(&perm))).await?;
+        tool_count += 1;
+        
+        // 通道配置工具
+        registry.register(ChannelConfigTool::new(perm)).await?;
+        tool_count += 1;
+    }
+
     info!(
-        "✅ 内置工具初始化完成: {} 个工具 (files + web + exec + memory + browser + canvas + sessions + nodes + feishu + tts)",
+        "✅ 内置工具初始化完成: {} 个工具 (files + web + exec + memory + browser + canvas + sessions + nodes + feishu + tts + permission)",
         tool_count
     );
     

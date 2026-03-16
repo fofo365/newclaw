@@ -5,6 +5,7 @@
 // v0.6.0 - 懒加载 Provider（解决启动阻塞问题）
 pub mod provider;
 pub mod openai;
+pub mod qwencode;
 pub mod claude;
 pub mod glm;
 pub mod ollama;
@@ -15,6 +16,7 @@ pub mod lazy_provider;
 // Re-exports
 pub use provider::{LLMProviderV3, ChatRequest, ChatResponse, Message, MessageRole, LLMError, ModelStrategy, LLMConfig, ProviderType, TokenUsage, ToolDefinition, ToolCall};
 pub use openai::OpenAIProvider;
+pub use qwencode::QwenCodeProvider;
 pub use claude::ClaudeProvider;
 pub use ollama::{OllamaProvider, OllamaConfig, OllamaModel};
 pub use lazy_provider::LazyLLMProvider;

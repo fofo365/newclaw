@@ -269,6 +269,7 @@ pub enum ProviderType {
     OpenAI,
     Claude,
     DeepSeek,
+    QwenCode,
 }
 
 /// 模型配置

@@ -15,6 +15,7 @@ pub mod nodes;
 pub mod feishu;
 pub mod tts;
 pub mod orchestrator;
+pub mod permission;
 pub mod init;
 
 pub use error::ToolError;
@@ -33,6 +34,7 @@ pub use nodes::{NodesTool, NodeStore, NodeInfo, NodeType, NodeStatus, NodeCapabi
 pub use feishu::{FeishuDocTool, FeishuBitableTool, FeishuDriveTool, FeishuWikiTool, FeishuChatTool};
 pub use tts::TtsTool;
 pub use orchestrator::{ToolOrchestrator, OrchestrationPlan, ToolStep, ErrorHandling};
+pub use permission::{PermissionTool, ChannelConfigTool};
 pub use init::init_builtin_tools;
 
 use async_trait::async_trait;
