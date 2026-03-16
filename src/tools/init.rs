@@ -1,66 +1,123 @@
 // 工具初始化模块
+//
+// 注册所有内置工具到统一的 ToolRegistry
+// 所有通道层共享此工具系统
+
 use crate::tools::{
+    // 文件工具
+    ReadTool, WriteTool, EditTool,
+    // Web 工具
+    WebSearchTool, WebFetchTool,
+    // 执行工具
+    ExecTool,
+    // 其他工具
     MemoryTool, ToolRegistry, BrowserTool, CanvasTool,
     SessionsTool, SubagentsTool, NodesTool,
     FeishuDocTool, FeishuBitableTool, FeishuDriveTool, FeishuWikiTool, FeishuChatTool,
-    TtsTool
+    TtsTool,
 };
 use std::path::PathBuf;
 use tracing::info;
 
-/// 初始化内置工具
-pub async fn init_builtin_tools(registry: &ToolRegistry, data_dir: PathBuf, openclaw_workspace: PathBuf) -> anyhow::Result<()> {
-    // 注册记忆工具
+/// 初始化所有内置工具
+///
+/// 此函数注册所有可用工具到 ToolRegistry，确保所有通道层（CLI、飞书、Dashboard等）
+/// 都能访问相同的工具集
+pub async fn init_builtin_tools(
+    registry: &ToolRegistry,
+    data_dir: PathBuf,
+    openclaw_workspace: PathBuf,
+) -> anyhow::Result<()> {
+    let mut tool_count = 0;
+
+    // ==================== 文件工具 ====================
+    
+    // 文件读取
+    registry.register(ReadTool::new()).await?;
+    tool_count += 1;
+    
+    // 文件写入
+    registry.register(WriteTool::new()).await?;
+    tool_count += 1;
+    
+    // 文件编辑
+    registry.register(EditTool::new()).await?;
+    tool_count += 1;
+
+    // ==================== Web 工具 ====================
+    
+    // 网络搜索
+    registry.register(WebSearchTool::new()).await?;
+    tool_count += 1;
+    
+    // 网页抓取
+    registry.register(WebFetchTool).await?;
+    tool_count += 1;
+
+    // ==================== 执行工具 ====================
+    
+    // 命令执行
+    registry.register(ExecTool::new()).await?;
+    tool_count += 1;
+
+    // ==================== 记忆工具 ====================
+    
     let memory_tool = MemoryTool::new(
         data_dir.join("memory"),
         openclaw_workspace,
     );
     registry.register(memory_tool).await?;
+    tool_count += 1;
 
-    // 注册浏览器工具
-    let browser_tool = BrowserTool::new();
-    registry.register(browser_tool).await?;
+    // ==================== 浏览器工具 ====================
+    
+    registry.register(BrowserTool::new()).await?;
+    tool_count += 1;
 
-    // 注册 Canvas 工具
-    let canvas_tool = CanvasTool::new();
-    registry.register(canvas_tool).await?;
+    // ==================== Canvas 工具 ====================
+    
+    registry.register(CanvasTool::new()).await?;
+    tool_count += 1;
 
-    // 注册会话管理工具
-    let sessions_tool = SessionsTool::new();
-    registry.register(sessions_tool).await?;
+    // ==================== 会话/代理工具 ====================
+    
+    registry.register(SessionsTool::new()).await?;
+    tool_count += 1;
+    
+    registry.register(SubagentsTool::new()).await?;
+    tool_count += 1;
 
-    // 注册子代理管理工具
-    let subagents_tool = SubagentsTool::new();
-    registry.register(subagents_tool).await?;
+    // ==================== 节点工具 ====================
+    
+    registry.register(NodesTool::new()).await?;
+    tool_count += 1;
 
-    // 注册节点管理工具
-    let nodes_tool = NodesTool::new();
-    registry.register(nodes_tool).await?;
+    // ==================== 飞书工具 ====================
+    
+    registry.register(FeishuDocTool::new()).await?;
+    tool_count += 1;
+    
+    registry.register(FeishuBitableTool::new()).await?;
+    tool_count += 1;
+    
+    registry.register(FeishuDriveTool::new()).await?;
+    tool_count += 1;
+    
+    registry.register(FeishuWikiTool::new()).await?;
+    tool_count += 1;
+    
+    registry.register(FeishuChatTool::new()).await?;
+    tool_count += 1;
 
-    // 注册飞书文档工具
-    let feishu_doc_tool = FeishuDocTool::new();
-    registry.register(feishu_doc_tool).await?;
+    // ==================== TTS 工具 ====================
+    
+    registry.register(TtsTool::new()).await?;
+    tool_count += 1;
 
-    // 注册飞书多维表格工具
-    let feishu_bitable_tool = FeishuBitableTool::new();
-    registry.register(feishu_bitable_tool).await?;
-
-    // 注册飞书云存储工具
-    let feishu_drive_tool = FeishuDriveTool::new();
-    registry.register(feishu_drive_tool).await?;
-
-    // 注册飞书知识库工具
-    let feishu_wiki_tool = FeishuWikiTool::new();
-    registry.register(feishu_wiki_tool).await?;
-
-    // 注册飞书聊天工具
-    let feishu_chat_tool = FeishuChatTool::new();
-    registry.register(feishu_chat_tool).await?;
-
-    // 注册 TTS 工具
-    let tts_tool = TtsTool::new();
-    registry.register(tts_tool).await?;
-
-    info!("✅ 内置工具初始化完成 (memory + browser + canvas + sessions + subagents + nodes + feishu + tts)");
+    info!(
+        "✅ 内置工具初始化完成: {} 个工具 (files + web + exec + memory + browser + canvas + sessions + nodes + feishu + tts)",
+        tool_count
+    );
+    
     Ok(())
 }

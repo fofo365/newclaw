@@ -1,25 +1,16 @@
-// 飞书机器人工具调用模块
+// 飞书通道工具适配层
 //
-// 集成 NewClaw 完整工具系统：
-// - 文件操作工具 (read, write, edit)
-// - Web 工具 (search, fetch)
-// - 执行工具 (exec)
-// - 浏览器工具 (browser)
-// - Canvas 工具 (canvas)
-// - 记忆工具 (memory)
-// - 会话工具 (sessions)
-// - 子代理工具 (subagents)
-// - 节点工具 (nodes)
-// - 飞书工具 (doc, bitable, drive, wiki, chat)
-// - TTS 工具 (tts)
+// 此模块不定义独立的工具，而是适配统一的 ToolRegistry
+// 所有工具定义在 src/tools/ 下，通过 init_builtin_tools 注册
 
-use anyhow::{Result, Context};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, warn, error};
+use tracing::{info, warn};
 
+// 引入统一的工具系统
 use crate::tools::{ToolRegistry, ToolMetadata, init_builtin_tools};
 use std::path::PathBuf;
 
@@ -46,9 +37,12 @@ pub struct ToolResult {
     pub error: Option<String>,
 }
 
-/// 工具管理器（包装 ToolRegistry）
+/// 工具管理器
+///
+/// 包装统一的 ToolRegistry，为飞书通道提供工具调用能力
+/// 所有工具通过 init_builtin_tools 注册，确保与 CLI 等其他通道一致
 pub struct ToolManager {
-    /// 工具注册表
+    /// 统一的工具注册表
     registry: Arc<ToolRegistry>,
     /// 工具元数据缓存
     tools_cache: Arc<RwLock<Vec<ToolMetadata>>>,
@@ -56,6 +50,8 @@ pub struct ToolManager {
 
 impl ToolManager {
     /// 创建新的工具管理器
+    ///
+    /// 初始化统一的 ToolRegistry 并注册所有内置工具
     pub async fn new() -> Self {
         let registry = Arc::new(ToolRegistry::new());
         let tools_cache = Arc::new(RwLock::new(Vec::new()));
@@ -65,12 +61,23 @@ impl ToolManager {
             tools_cache,
         };
         
-        // 初始化内置工具
+        // 使用统一的 init_builtin_tools 初始化所有工具
         if let Err(e) = manager.init_tools().await {
             warn!("初始化工具失败: {}", e);
         }
         
         manager
+    }
+
+    /// 从现有的 ToolRegistry 创建
+    ///
+    /// 允许共享同一个 ToolRegistry 实例
+    pub fn from_registry(registry: Arc<ToolRegistry>) -> Self {
+        let tools_cache = Arc::new(RwLock::new(Vec::new()));
+        Self {
+            registry,
+            tools_cache,
+        }
     }
 
     /// 初始化所有内置工具
@@ -82,86 +89,27 @@ impl ToolManager {
         std::fs::create_dir_all(&data_dir)?;
         std::fs::create_dir_all(&workspace)?;
         
-        // 初始化内置工具
+        // 调用统一的 init_builtin_tools
         init_builtin_tools(&self.registry, data_dir, workspace).await?;
-        
-        // 注册额外的系统工具
-        self.register_system_tools().await?;
         
         // 刷新缓存
         self.refresh_cache().await?;
         
-        info!("✅ 工具初始化完成，共 {} 个工具", self.tools_cache.read().await.len());
-        Ok(())
-    }
-
-    /// 注册系统工具（不在 init_builtin_tools 中的）
-    async fn register_system_tools(&self) -> Result<()> {
-        // 系统状态工具
-        let system_tools = vec![
-            SystemTool {
-                name: "systemctl_status".to_string(),
-                description: "查看 systemd 服务状态".to_string(),
-                execute_fn: |args| {
-                    let service = args.get("service")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("newclaw-*");
-                    let cmd = format!("systemctl status {}", service);
-                    execute_safe_command(&cmd)
-                },
-            },
-            SystemTool {
-                name: "ps_list".to_string(),
-                description: "查看运行中的进程列表".to_string(),
-                execute_fn: |args| {
-                    let filter = args.get("filter")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("newclaw");
-                    let cmd = format!("ps aux | grep -E '(PID|{})' | head -30", filter);
-                    execute_safe_command(&cmd)
-                },
-            },
-            SystemTool {
-                name: "tail_log".to_string(),
-                description: "查看日志文件尾部内容".to_string(),
-                execute_fn: |args| {
-                    let file = args.get("file")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("/var/log/newclaw/*.log");
-                    let lines = args.get("lines")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(20);
-                    let cmd = format!("tail -n {} {} 2>/dev/null", lines, file);
-                    execute_safe_command(&cmd)
-                },
-            },
-            SystemTool {
-                name: "disk_usage".to_string(),
-                description: "查看磁盘使用情况".to_string(),
-                execute_fn: |_| execute_safe_command("df -h | head -20"),
-            },
-            SystemTool {
-                name: "memory_usage".to_string(),
-                description: "查看内存使用情况".to_string(),
-                execute_fn: |_| execute_safe_command("free -h"),
-            },
-        ];
-        
-        for tool in system_tools {
-            self.registry.register(tool).await?;
-        }
-        
+        let count = self.tools_cache.read().await.len();
+        info!("✅ 飞书通道工具初始化完成，共 {} 个工具", count);
         Ok(())
     }
 
     /// 刷新工具缓存
-    async fn refresh_cache(&self) -> Result<()> {
+    pub async fn refresh_cache(&self) -> Result<()> {
         let tools = self.registry.list_tools().await;
         *self.tools_cache.write().await = tools;
         Ok(())
     }
 
     /// 获取所有工具定义
+    ///
+    /// 返回已注册的所有工具元数据，用于构建 LLM 系统提示词
     pub async fn get_all_tools(&self) -> Vec<ToolMetadata> {
         self.tools_cache.read().await.clone()
     }
@@ -172,6 +120,8 @@ impl ToolManager {
     }
 
     /// 执行工具调用
+    ///
+    /// 将参数转换为 JSON 并调用统一的 ToolRegistry
     pub async fn execute_tool(&self, call: &ToolCallRequest) -> ToolResult {
         let tool_name = &call.name;
         
@@ -187,9 +137,11 @@ impl ToolManager {
             .collect::<serde_json::Map<String, serde_json::Value>>()
             .into();
 
+        // 调用统一的 ToolRegistry
         match self.registry.call(tool_name, args).await {
             Ok(result) => {
-                let output = serde_json::to_string_pretty(&result).unwrap_or_else(|_| result.to_string());
+                let output = serde_json::to_string_pretty(&result)
+                    .unwrap_or_else(|_| result.to_string());
                 ToolResult {
                     tool_name: tool_name.clone(),
                     success: true,
@@ -209,7 +161,7 @@ impl ToolManager {
 
 impl Default for ToolManager {
     fn default() -> Self {
-        // 同步版本的 default，会在第一次使用时初始化
+        // 同步版本的 default，实际使用时应调用 new()
         let registry = Arc::new(ToolRegistry::new());
         let tools_cache = Arc::new(RwLock::new(Vec::new()));
         Self {
@@ -219,67 +171,9 @@ impl Default for ToolManager {
     }
 }
 
-/// 系统工具（用于执行 shell 命令）
-struct SystemTool {
-    name: String,
-    description: String,
-    execute_fn: fn(&HashMap<String, serde_json::Value>) -> Result<String>,
-}
-
-#[async_trait::async_trait]
-impl crate::tools::Tool for SystemTool {
-    fn metadata(&self) -> ToolMetadata {
-        ToolMetadata {
-            name: self.name.clone(),
-            description: self.description.clone(),
-            parameters: serde_json::json!({
-                "type": "object",
-                "properties": {},
-            }),
-        }
-    }
-
-    async fn execute(&self, args: serde_json::Value) -> anyhow::Result<serde_json::Value> {
-        let args_map: HashMap<String, serde_json::Value> = if args.is_object() {
-            args.as_object()
-                .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
-                .unwrap_or_default()
-        } else {
-            HashMap::new()
-        };
-
-        let result = (self.execute_fn)(&args_map)?;
-        Ok(serde_json::json!({ "result": result }))
-    }
-}
-
-/// 执行安全命令
-fn execute_safe_command(cmd: &str) -> Result<String> {
-    let allowed_commands = ["systemctl", "ps", "df", "free", "tail", "head", "grep"];
-    
-    // 检查命令是否在白名单中
-    let cmd_start = cmd.split_whitespace().next().unwrap_or("");
-    if !allowed_commands.contains(&cmd_start) {
-        return Err(anyhow::anyhow!("不允许执行命令: {}", cmd_start));
-    }
-
-    let output = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(cmd)
-        .output()
-        .context("执行命令失败")?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-    if output.status.success() {
-        Ok(stdout)
-    } else {
-        Err(anyhow::anyhow!("命令执行失败: {}", stderr))
-    }
-}
-
 /// 构建工具的系统提示词
+///
+/// 根据已注册的工具生成 LLM 系统提示词
 pub fn build_tools_system_prompt(tools: &[ToolMetadata]) -> String {
     let mut prompt = r#"你是一个智能助手，拥有完整的工具调用能力。
 
@@ -293,12 +187,14 @@ pub fn build_tools_system_prompt(tools: &[ToolMetadata]) -> String {
     for tool in tools {
         let category = if tool.name.starts_with("feishu_") {
             "飞书工具"
-        } else if tool.name.starts_with("memory") {
+        } else if tool.name.contains("memory") {
             "记忆工具"
-        } else if tool.name.starts_with("file") || tool.name == "read" || tool.name == "write" || tool.name == "edit" {
+        } else if tool.name == "read" || tool.name == "write" || tool.name == "edit" {
             "文件工具"
-        } else if tool.name.starts_with("web") {
+        } else if tool.name.starts_with("web_") || tool.name.contains("search") || tool.name.contains("fetch") {
             "Web工具"
+        } else if tool.name == "exec" {
+            "执行工具"
         } else if tool.name.starts_with("session") || tool.name.starts_with("subagent") {
             "会话/代理工具"
         } else if tool.name.starts_with("node") {
@@ -309,8 +205,6 @@ pub fn build_tools_system_prompt(tools: &[ToolMetadata]) -> String {
             "Canvas工具"
         } else if tool.name == "tts" {
             "TTS工具"
-        } else if tool.name == "exec" {
-            "执行工具"
         } else {
             "系统工具"
         };
@@ -350,9 +244,8 @@ pub fn build_tools_system_prompt(tools: &[ToolMetadata]) -> String {
 ```json
 {
   "tool_calls": [
-    {"name": "systemctl_status", "arguments": {"service": "newclaw-*"}},
-    {"name": "disk_usage", "arguments": {}},
-    {"name": "memory_usage", "arguments": {}}
+    {"name": "exec", "arguments": {"command": "systemctl status newclaw-*"}},
+    {"name": "exec", "arguments": {"command": "df -h"}}
   ]
 }
 ```
@@ -370,7 +263,25 @@ pub fn build_tools_system_prompt(tools: &[ToolMetadata]) -> String {
 ```json
 {
   "tool_calls": [
-    {"name": "feishu_doc_search", "arguments": {"query": "搜索词"}}
+    {"name": "feishu_doc", "arguments": {"action": "search", "query": "搜索词"}}
+  ]
+}
+```
+
+用户：读取一个文件
+```json
+{
+  "tool_calls": [
+    {"name": "read", "arguments": {"path": "/path/to/file"}}
+  ]
+}
+```
+
+用户：搜索网络
+```json
+{
+  "tool_calls": [
+    {"name": "web_search", "arguments": {"query": "搜索关键词"}}
   ]
 }
 ```
@@ -387,7 +298,8 @@ mod tests {
     async fn test_tool_manager_creation() {
         let manager = ToolManager::new().await;
         let tools = manager.get_all_tools().await;
-        assert!(!tools.is_empty());
+        // 应该有 15+ 个工具
+        assert!(tools.len() >= 15, "Expected at least 15 tools, got {}", tools.len());
     }
 
     #[test]
@@ -407,17 +319,5 @@ mod tests {
         let prompt = build_tools_system_prompt(&tools);
         assert!(prompt.contains("read"));
         assert!(prompt.contains("feishu_doc"));
-    }
-
-    #[test]
-    fn test_execute_safe_command() {
-        let result = execute_safe_command("echo hello");
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_unsafe_command() {
-        let result = execute_safe_command("rm -rf /");
-        assert!(result.is_err());
     }
 }
