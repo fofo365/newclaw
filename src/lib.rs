@@ -85,6 +85,9 @@ pub mod federated;
 // v0.7.0 P2 - Channel Layer (统一通道层抽象)
 pub mod channel;
 
+// v0.7.0 - Workspace (工作空间管理)
+pub mod workspace;
+
 // Re-export main types
 pub use core::AgentEngine;
 pub use core::{ContextManager, ContextConfig, ContextChunk};
