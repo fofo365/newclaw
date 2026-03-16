@@ -2,6 +2,7 @@
 //
 // 此模块不定义独立的工具，而是适配统一的 ToolRegistry
 // 所有工具定义在 src/tools/ 下，通过 init_builtin_tools 注册
+// v0.7.0: 集成权限控制
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -11,7 +12,8 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 // 引入统一的工具系统
-use crate::tools::{ToolRegistry, ToolMetadata, init_builtin_tools};
+use crate::tools::{ToolRegistry, ToolMetadata, init_builtin_tools_with_permissions};
+use crate::channel::ChannelPermission;
 use std::path::PathBuf;
 
 /// LLM 工具调用请求
@@ -41,9 +43,12 @@ pub struct ToolResult {
 ///
 /// 包装统一的 ToolRegistry，为飞书通道提供工具调用能力
 /// 所有工具通过 init_builtin_tools 注册，确保与 CLI 等其他通道一致
+/// v0.7.0: 集成权限控制
 pub struct ToolManager {
     /// 统一的工具注册表
     registry: Arc<ToolRegistry>,
+    /// 权限管理器 (v0.7.0)
+    permissions: Arc<ChannelPermission>,
     /// 工具元数据缓存
     tools_cache: Arc<RwLock<Vec<ToolMetadata>>>,
 }
@@ -54,14 +59,16 @@ impl ToolManager {
     /// 初始化统一的 ToolRegistry 并注册所有内置工具
     pub async fn new() -> Self {
         let registry = Arc::new(ToolRegistry::new());
+        let permissions = Arc::new(ChannelPermission::new("/var/lib/newclaw/permissions.json"));
         let tools_cache = Arc::new(RwLock::new(Vec::new()));
         
         let manager = Self {
             registry,
+            permissions,
             tools_cache,
         };
         
-        // 使用统一的 init_builtin_tools 初始化所有工具
+        // 使用统一的 init_builtin_tools 初始化所有工具 (带权限管理)
         if let Err(e) = manager.init_tools().await {
             warn!("初始化工具失败: {}", e);
         }
@@ -69,13 +76,17 @@ impl ToolManager {
         manager
     }
 
-    /// 从现有的 ToolRegistry 创建
+    /// 从现有的 ToolRegistry 和权限管理器创建
     ///
-    /// 允许共享同一个 ToolRegistry 实例
-    pub fn from_registry(registry: Arc<ToolRegistry>) -> Self {
+    /// 允许共享同一个 ToolRegistry 和权限管理器实例
+    pub fn from_registry_and_permissions(
+        registry: Arc<ToolRegistry>,
+        permissions: Arc<ChannelPermission>,
+    ) -> Self {
         let tools_cache = Arc::new(RwLock::new(Vec::new()));
         Self {
             registry,
+            permissions,
             tools_cache,
         }
     }
@@ -89,8 +100,13 @@ impl ToolManager {
         std::fs::create_dir_all(&data_dir)?;
         std::fs::create_dir_all(&workspace)?;
         
-        // 调用统一的 init_builtin_tools
-        init_builtin_tools(&self.registry, data_dir, workspace).await?;
+        // 调用统一的 init_builtin_tools_with_permissions
+        init_builtin_tools_with_permissions(
+            &self.registry,
+            data_dir,
+            workspace,
+            Some(Arc::clone(&self.permissions)),
+        ).await?;
         
         // 刷新缓存
         self.refresh_cache().await?;
@@ -163,9 +179,11 @@ impl Default for ToolManager {
     fn default() -> Self {
         // 同步版本的 default，实际使用时应调用 new()
         let registry = Arc::new(ToolRegistry::new());
+        let permissions = Arc::new(ChannelPermission::default());
         let tools_cache = Arc::new(RwLock::new(Vec::new()));
         Self {
             registry,
+            permissions,
             tools_cache,
         }
     }

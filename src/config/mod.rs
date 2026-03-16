@@ -34,7 +34,7 @@ pub struct Config {
 /// LLM 配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LLMConfig {
-    /// 提供商: openai, claude, glm, glm-cn, glm-global, zai, zai-cn
+    /// 提供商: openai, claude, glm, glm-cn, glm-global, zai, zai-cn, qwencode
     #[serde(default = "default_provider")]
     pub provider: String,
     
@@ -58,6 +58,10 @@ pub struct LLMConfig {
     #[serde(default)]
     pub claude: ProviderCredentials,
     
+    /// QwenCode 配置
+    #[serde(default)]
+    pub qwencode: ProviderCredentials,
+    
     /// GLM 配置 (支持多区域)
     #[serde(default)]
     pub glm: GlmProviderConfig,
@@ -72,6 +76,7 @@ impl Default for LLMConfig {
             max_tokens: default_max_tokens(),
             openai: ProviderCredentials::default(),
             claude: ProviderCredentials::default(),
+            qwencode: ProviderCredentials::default(),
             glm: GlmProviderConfig::default(),
         }
     }
@@ -87,6 +92,7 @@ fn default_model() -> String {
     match provider.to_lowercase().as_str() {
         "openai" => std::env::var("LLM_MODEL").unwrap_or_else(|_| "gpt-4o-mini".to_string()),
         "claude" => std::env::var("LLM_MODEL").unwrap_or_else(|_| "claude-3-5-sonnet-20241022".to_string()),
+        "qwencode" => std::env::var("LLM_MODEL").unwrap_or_else(|_| "qwencode/glm-4.7".to_string()),
         // GLM 和 z.ai (GLMCode) 的默认模型
         "glm" | "glm-global" | "zhipu" | "zhipu-global" => 
             std::env::var("LLM_MODEL").unwrap_or_else(|_| "glm-4".to_string()),
@@ -346,6 +352,17 @@ impl Config {
         let key = match self.llm.provider.as_str() {
             "openai" => self.llm.openai.api_key.clone(),
             "claude" => self.llm.claude.api_key.clone(),
+            "qwencode" => {
+                // 从环境变量或配置文件读取
+                std::env::var("QWENCODE_API_KEY")
+                    .or_else(|_| {
+                        match self.llm.qwencode.api_key.clone() {
+                            Some(key) => Ok(key),
+                            None => Err(std::env::VarError::NotPresent),
+                        }
+                    })
+                    .ok()
+            },
             other => return Err(anyhow::anyhow!("Unknown provider: {}", other)),
         };
         
@@ -517,6 +534,10 @@ pub fn generate_example_config() -> String {
                 api_key: Some("your-id.your-secret".to_string()),
                 region: "international".to_string(),
                 provider_type: "glm".to_string(),
+                base_url: None,
+            },
+            qwencode: ProviderCredentials {
+                api_key: Some("sk-...".to_string()),
                 base_url: None,
             },
         },

@@ -1,12 +1,15 @@
-// CLI module for NewClaw - v0.4.0
+// CLI module for NewClaw - v0.7.0
 //
 // 支持：
 // 1. 多 LLM Provider (OpenAI, Claude, GLM 多区域)
 // 2. 命令行参数配置
 // 3. 配置文件支持
 // 4. 工具执行
+// 5. 通道层抽象 (v0.7.0)
+// 6. 权限控制 (v0.7.0)
 
 use std::io::{self, Write};
+use std::sync::Arc;
 use clap::Parser;
 use crate::config::Config;
 use crate::llm::{
@@ -14,6 +17,8 @@ use crate::llm::{
     ChatRequest, Message, MessageRole, TokenUsage, ToolDefinition, is_glm_alias, create_glm_provider
 };
 use crate::tools::ToolRegistry;
+use crate::channel::{ChannelPermission, ChannelType, ChannelMember, ChannelRole};
+use crate::tools::init_builtin_tools_with_permissions;
 
 /// NewClaw CLI
 #[derive(Parser, Debug)]
@@ -160,9 +165,20 @@ async fn run_interactive_mode(config: &Config) -> anyhow::Result<()> {
         None
     };
     
+    // 创建权限管理器 (v0.7.0)
+    let permissions = Arc::new(ChannelPermission::new("./data/permissions.json"));
+    
     // 创建工具注册表
     let tool_registry = ToolRegistry::new();
-    register_tools(&tool_registry).await;
+    register_tools(&tool_registry, Arc::clone(&permissions)).await;
+    
+    // 创建 CLI 通道成员 (v0.7.0)
+    let cli_member = ChannelMember {
+        channel_type: ChannelType::Cli,
+        member_id: "cli_user".to_string(),
+        display_name: Some("CLI User".to_string()),
+        role: ChannelRole::Admin, // CLI 用户默认为管理员
+    };
     
     loop {
         print!("> ");
@@ -395,16 +411,17 @@ async fn get_tool_definitions(registry: &ToolRegistry) -> Vec<ToolDefinition> {
         .collect()
 }
 
-/// 注册工具
-async fn register_tools(registry: &ToolRegistry) {
+/// 注册工具 (使用新的权限系统)
+async fn register_tools(registry: &ToolRegistry, permissions: Arc<ChannelPermission>) {
     use std::path::PathBuf;
-    use crate::tools::init_builtin_tools;
+    use crate::tools::init_builtin_tools_with_permissions;
     
-    // 初始化内置工具
-    if let Err(e) = init_builtin_tools(
+    // 初始化内置工具 (带权限管理)
+    if let Err(e) = init_builtin_tools_with_permissions(
         registry,
         PathBuf::from("./data"),
         PathBuf::from("."),
+        Some(permissions),
     ).await {
         eprintln!("Warning: Failed to initialize some tools: {}", e);
     }

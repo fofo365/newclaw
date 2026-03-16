@@ -873,6 +873,7 @@ pub async fn start_dashboard(config: DashboardConfig) -> anyhow::Result<()> {
                     region: "international".to_string(),
                     provider_type: "glm".to_string(),
                 },
+                qwencode: Default::default(),
                 openai: Default::default(),
                 claude: Default::default(),
             };

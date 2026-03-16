@@ -35,7 +35,7 @@ pub use feishu::{FeishuDocTool, FeishuBitableTool, FeishuDriveTool, FeishuWikiTo
 pub use tts::TtsTool;
 pub use orchestrator::{ToolOrchestrator, OrchestrationPlan, ToolStep, ErrorHandling};
 pub use permission::{PermissionTool, ChannelConfigTool};
-pub use init::init_builtin_tools;
+pub use init::{init_builtin_tools, init_builtin_tools_with_permissions};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
