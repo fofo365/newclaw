@@ -274,14 +274,16 @@ impl FeishuWebSocketManager {
                                 error!("Failed to handle event: {:?}", e);
                             }
                         } else {
-                            // 尝试解析飞书原始消息格式
+                            // 尝试解析飞书 v2.0 事件格式
                             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&message) {
-                                // 处理飞书消息格式
-                                if let Some(event_type) = json.get("type").and_then(|t| t.as_str()) {
-                                    info!("Feishu event type: {}", event_type);
+                                // 飞书 v2.0 格式
+                                if let Some(event_type) = json.get("header")
+                                    .and_then(|h| h.get("event_type"))
+                                    .and_then(|t| t.as_str()) {
                                     
-                                    // 解析消息内容
-                                    if event_type == "message" {
+                                    info!("飞书事件类型: {}", event_type);
+                                    
+                                    if event_type == "im.message.receive_v1" {
                                         if let Some(event_data) = json.get("event") {
                                             let open_id = event_data.get("sender")
                                                 .and_then(|s| s.get("sender_id"))
@@ -294,12 +296,22 @@ impl FeishuWebSocketManager {
                                                 .and_then(|id| id.as_str())
                                                 .unwrap_or("");
                                             
-                                            let content = event_data.get("message")
+                                            let content_json = event_data.get("message")
                                                 .and_then(|m| m.get("content"))
                                                 .and_then(|c| c.as_str())
-                                                .unwrap_or("");
+                                                .unwrap_or("{}");
                                             
-                                            info!("Message from {} in {}: {}", open_id, chat_id, content);
+                                            // 解析 content 中的 text
+                                            let text = if let Ok(content_obj) = serde_json::from_str::<serde_json::Value>(content_json) {
+                                                content_obj.get("text")
+                                                    .and_then(|t| t.as_str())
+                                                    .unwrap_or("")
+                                                    .to_string()
+                                            } else {
+                                                String::new()
+                                            };
+                                            
+                                            info!("收到消息 - 用户: {}, 群: {}, 内容: {}", open_id, chat_id, text);
                                             
                                             // 创建事件并处理
                                             let event = FeishuEvent::MessageReceived {
@@ -307,7 +319,7 @@ impl FeishuWebSocketManager {
                                                 open_id: open_id.to_string(),
                                                 chat_id: chat_id.to_string(),
                                                 user_id: open_id.to_string(),
-                                                content: content.to_string(),
+                                                content: text,
                                                 message_id: String::new(),
                                                 create_time: chrono::Utc::now().timestamp(),
                                             };

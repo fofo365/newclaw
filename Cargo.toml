@@ -129,6 +129,7 @@ prost-types = "0.13"
 
 [build-dependencies]
 tonic-build = "0.12"
+prost-build = "0.13"
 
 # Plugin system (Node.js) - Commented out until implemented
 # plugin = { version = "0.1.0", path = "plugin" }
@@ -140,6 +141,10 @@ path = "src/bin/migrate.rs"
 [[bin]]
 name = "watchdog"
 path = "src/bin/watchdog.rs"
+
+[[bin]]
+name = "test-tools"
+path = "src/bin/test-tools.rs"
 
 [features]
 default = []

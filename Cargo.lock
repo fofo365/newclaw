@@ -2284,6 +2284,7 @@ dependencies = [
  "password-hash",
  "pin-project",
  "prost",
+ "prost-build",
  "prost-types",
  "quick-xml",
  "rand 0.8.5",

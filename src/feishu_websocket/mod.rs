@@ -17,6 +17,8 @@ pub mod manager;
 pub mod polling;
 pub mod messages;
 pub mod retry;
+pub mod frame;
+pub mod tools;
 
 // Re-exports
 pub use pool::{ConnectionPool, Connection, ConnectionState};
@@ -36,6 +38,7 @@ pub use retry::{
     ErrorCategory, ErrorSeverity, AlertRule, FallbackStrategy,
     CacheFallback, DefaultValueFallback,
 };
+pub use tools::{ToolManager, ToolCallRequest, ToolResult, Tool, build_tools_system_prompt};
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;

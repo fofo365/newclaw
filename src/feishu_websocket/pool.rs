@@ -8,12 +8,13 @@
 use super::{WebSocketError, WebSocketResult};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use prost::Message as ProstMessage;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::RwLock;
 use tokio_tungstenite::WebSocketStream;
-use tokio_tungstenite::tungstenite::protocol::Message;
+use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
 use futures_util::{SinkExt, StreamExt};
 
 /// WebSocket 连接流类型
@@ -65,7 +66,7 @@ impl Connection {
     /// 发送消息
     pub async fn send(&mut self, msg: &str) -> WebSocketResult<()> {
         if let Some(ref mut ws) = self.ws {
-            ws.send(Message::Text(msg.to_string())).await
+            ws.send(WsMessage::Text(msg.to_string())).await
                 .map_err(|e| WebSocketError::WebSocket(e.to_string()))?;
             Ok(())
         } else {
@@ -77,10 +78,10 @@ impl Connection {
     pub async fn receive(&mut self) -> WebSocketResult<Option<String>> {
         if let Some(ref mut ws) = self.ws {
             match ws.next().await {
-                Some(Ok(Message::Text(text))) => Ok(Some(text)),
-                Some(Ok(Message::Ping(_))) => Ok(None), // 忽略 Ping
-                Some(Ok(Message::Pong(_))) => Ok(None), // 忽略 Pong
-                Some(Ok(Message::Close(_))) => {
+                Some(Ok(WsMessage::Text(text))) => Ok(Some(text)),
+                Some(Ok(WsMessage::Ping(_))) => Ok(None), // 忽略 Ping
+                Some(Ok(WsMessage::Pong(_))) => Ok(None), // 忽略 Pong
+                Some(Ok(WsMessage::Close(_))) => {
                     self.state = ConnectionState::Disconnected;
                     Ok(None)
                 }
@@ -267,18 +268,74 @@ impl ConnectionPool {
                     tokio::time::Duration::from_millis(100),
                     ws.next()
                 ).await {
-                    Ok(Some(Ok(Message::Text(text)))) => {
+                    Ok(Some(Ok(WsMessage::Text(text)))) => {
                         return Ok(Some(text));
                     }
-                    Ok(Some(Ok(Message::Ping(data)))) => {
+                    Ok(Some(Ok(WsMessage::Binary(data)))) => {
+                        // 处理二进制消息（飞书 Protobuf 协议）
+                        tracing::debug!("收到二进制消息，长度: {} 字节", data.len());
+
+                        if let Ok(frame) = super::frame::FeishuFrame::decode(&data) {
+                            tracing::debug!("Frame 解码成功: type={:?}, headers={}", frame.frame_type, frame.headers.len());
+
+                            if let Some(msg_type) = frame.message_type() {
+                                tracing::debug!("消息类型: {:?}", msg_type);
+                                match msg_type {
+                                    super::frame::MessageType::Event => {
+                                        // 解析事件消息
+                                        match String::from_utf8(frame.payload) {
+                                            Ok(json) => {
+                                                tracing::info!("收到飞书事件消息");
+                                                return Ok(Some(json));
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!("事件消息解析失败: {}", e);
+                                                return Ok(None);
+                                            }
+                                        }
+                                    }
+                                    super::frame::MessageType::Ping => {
+                                        tracing::debug!("收到 Ping");
+                                        // 发送 Pong 响应
+                                        let _ = ws.send(WsMessage::Pong(vec![])).await;
+                                        return Ok(None);
+                                    }
+                                    super::frame::MessageType::Pong => {
+                                        tracing::debug!("收到 Pong");
+                                        return Ok(None);
+                                    }
+                                    super::frame::MessageType::Card => {
+                                        tracing::debug!("收到卡片消息");
+                                        // 处理卡片消息
+                                        match String::from_utf8(frame.payload) {
+                                            Ok(json) => {
+                                                tracing::info!("收到飞书卡片消息");
+                                                return Ok(Some(json));
+                                            }
+                                            Err(e) => {
+                                                tracing::warn!("卡片消息解析失败: {}", e);
+                                                return Ok(None);
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                tracing::warn!("未知消息类型，headers: {:?}", frame.headers);
+                            }
+                        } else {
+                            tracing::warn!("Frame 解码失败，二进制数据长度: {}", data.len());
+                        }
+                        return Ok(None);
+                    }
+                    Ok(Some(Ok(WsMessage::Ping(data)))) => {
                         // 自动回复 Pong
-                        let _ = ws.send(Message::Pong(data)).await;
+                        let _ = ws.send(WsMessage::Pong(data)).await;
                         return Ok(None);
                     }
-                    Ok(Some(Ok(Message::Pong(_)))) => {
+                    Ok(Some(Ok(WsMessage::Pong(_)))) => {
                         return Ok(None);
                     }
-                    Ok(Some(Ok(Message::Close(_)))) => {
+                    Ok(Some(Ok(WsMessage::Close(_)))) => {
                         conn.state = ConnectionState::Disconnected;
                         return Ok(None);
                     }
@@ -308,7 +365,7 @@ impl ConnectionPool {
         
         if let Some(conn) = connections.get_mut(app_id) {
             if let Some(ref mut ws) = conn.ws {
-                ws.send(Message::Text(message.to_string())).await
+                ws.send(WsMessage::Text(message.to_string())).await
                     .map_err(|e| WebSocketError::WebSocket(e.to_string()))?;
                 return Ok(());
             }
