@@ -9,10 +9,12 @@
 // + 分层摘要机制 (v0.7.0)
 // + 向量存储 (v0.7.0 P2)
 // + 代码库嵌入索引 (v0.7.0 P2)
+// + 多层隔离机制 (v0.7.0) - 用户/通道/Agent/命名空间
 
 pub mod shared;
 pub mod constraint;
 pub mod storage;
+pub mod storage_impl;
 pub mod file_memory;
 pub mod summary;
 pub mod vector_store;
@@ -31,9 +33,12 @@ pub use constraint::{
 
 pub use storage::{
     MemoryStorage, StorageStats, StorageConfig,
-    SQLiteMemoryStorage, HybridSearchConfig, HybridSearchResult,
+    HybridSearchConfig, HybridSearchResult,
     MMRConfig, mmr_diversify,
+    MemoryScope,
 };
+
+pub use storage_impl::SQLiteMemoryStorage;
 
 pub use file_memory::{
     FileMemoryManager, MemoryFile, MemorySection, Decision,

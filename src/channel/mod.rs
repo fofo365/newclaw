@@ -10,14 +10,21 @@
 // - 统一的工具系统 (ToolRegistry)
 // - 统一的权限控制 (ChannelPermission)
 // - 统一的记忆系统 (MemoryStore)
+// - 统一的策略引擎 (StrategyEngine) - v0.7.0 新增
+// - 统一的上下文管理 (ContextManager) - v0.7.0 新增
 
 pub mod permission;
 pub mod base;
 pub mod manager;
+pub mod processor;
 
 pub use permission::{ChannelPermission, PermissionRule, PermissionConfig, PermissionRuleBuilder, PermissionRuleType};
 pub use base::{Channel, ChannelMessage, ChannelResponse, ChannelContext, ChannelStatus, MessageContent, BaseChannel};
 pub use manager::{ChannelManager, ChannelRegistry};
+pub use processor::{
+    ChannelProcessor, ProcessorConfig, ProcessorStats, ProcessResult, TokenUsage,
+    create_default_processor,
+};
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};

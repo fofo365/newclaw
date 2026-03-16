@@ -3,9 +3,13 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use super::{ChannelType, ChannelMember, ChannelCapabilities, ChannelPermission};
 use crate::tools::ToolRegistry;
+use crate::memory::MemoryStorage;
+use crate::context::StrategyEngine;
+use crate::llm::LLMProviderV3;
 
 /// 通道消息
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,6 +122,18 @@ pub struct ChannelContext {
     pub capabilities: ChannelCapabilities,
     /// 配置
     pub config: serde_json::Map<String, serde_json::Value>,
+    /// 记忆存储 (可选) - v0.7.0 新增
+    pub memory: Option<Arc<dyn MemoryStorage>>,
+    /// 策略引擎 (可选) - v0.7.0 新增
+    pub strategy: Option<Arc<RwLock<StrategyEngine>>>,
+    /// LLM Provider (可选) - v0.7.0 新增
+    pub llm: Option<Arc<dyn LLMProviderV3>>,
+    /// 模型名称 - v0.7.0 新增
+    pub model: String,
+    /// 温度参数 - v0.7.0 新增
+    pub temperature: f32,
+    /// 最大 tokens - v0.7.0 新增
+    pub max_tokens: usize,
 }
 
 impl ChannelContext {
@@ -133,6 +149,12 @@ impl ChannelContext {
             permissions,
             capabilities: ChannelCapabilities::default(),
             config: serde_json::Map::new(),
+            memory: None,
+            strategy: None,
+            llm: None,
+            model: "glm-4".to_string(),
+            temperature: 0.7,
+            max_tokens: 4096,
         }
     }
 
@@ -146,6 +168,47 @@ impl ChannelContext {
     pub fn with_config(mut self, key: &str, value: serde_json::Value) -> Self {
         self.config.insert(key.to_string(), value);
         self
+    }
+
+    /// 设置记忆存储 - v0.7.0
+    pub fn with_memory(mut self, memory: Arc<dyn MemoryStorage>) -> Self {
+        self.memory = Some(memory);
+        self
+    }
+
+    /// 设置策略引擎 - v0.7.0
+    pub fn with_strategy(mut self, strategy: Arc<RwLock<StrategyEngine>>) -> Self {
+        self.strategy = Some(strategy);
+        self
+    }
+
+    /// 设置 LLM Provider - v0.7.0
+    pub fn with_llm(mut self, llm: Arc<dyn LLMProviderV3>, model: String) -> Self {
+        self.llm = Some(llm);
+        self.model = model;
+        self
+    }
+
+    /// 设置 LLM 参数 - v0.7.0
+    pub fn with_llm_params(mut self, temperature: f32, max_tokens: usize) -> Self {
+        self.temperature = temperature;
+        self.max_tokens = max_tokens;
+        self
+    }
+
+    /// 检查是否有记忆支持
+    pub fn has_memory(&self) -> bool {
+        self.memory.is_some()
+    }
+
+    /// 检查是否有策略支持
+    pub fn has_strategy(&self) -> bool {
+        self.strategy.is_some()
+    }
+
+    /// 检查是否有 LLM 支持
+    pub fn has_llm(&self) -> bool {
+        self.llm.is_some()
     }
 }
 

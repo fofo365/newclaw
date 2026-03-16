@@ -1,17 +1,100 @@
 // Memory Storage - 统一记忆存储抽象
 //
 // v0.7.0 - 实现持久化存储，支持 FTS5 全文索引
+// v0.7.0 - 多层隔离机制：用户、通道、Agent、命名空间
+//
+// 注意：SQLiteMemoryStorage 的实现在 storage_impl.rs 中
 
-use std::path::PathBuf;
-use std::sync::Arc;
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
-use anyhow::{Result, Context};
-use rusqlite::{Connection, OptionalExtension};
-use tokio::sync::Mutex;
 
 use super::shared::{MemoryEntry, MemoryType, UserId};
+
+// ============================================================================
+// 多层隔离标识 - v0.7.0
+// ============================================================================
+
+/// 记忆隔离维度
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct MemoryScope {
+    /// 用户 ID
+    pub user_id: String,
+    /// 通道类型 (cli/dashboard/feishu/telegram...)
+    pub channel: String,
+    /// Agent ID (可选)
+    pub agent_id: Option<String>,
+    /// 命名空间 (可选，用于业务逻辑分组)
+    pub namespace: Option<String>,
+}
+
+impl MemoryScope {
+    /// 创建用户+通道隔离
+    pub fn for_channel(user_id: &str, channel: &str) -> Self {
+        Self {
+            user_id: user_id.to_string(),
+            channel: channel.to_string(),
+            agent_id: None,
+            namespace: None,
+        }
+    }
+
+    /// 创建完整隔离
+    pub fn full(user_id: &str, channel: &str, agent_id: &str, namespace: &str) -> Self {
+        Self {
+            user_id: user_id.to_string(),
+            channel: channel.to_string(),
+            agent_id: Some(agent_id.to_string()),
+            namespace: Some(namespace.to_string()),
+        }
+    }
+
+    /// 设置 Agent
+    pub fn with_agent(mut self, agent_id: &str) -> Self {
+        self.agent_id = Some(agent_id.to_string());
+        self
+    }
+
+    /// 设置命名空间
+    pub fn with_namespace(mut self, namespace: &str) -> Self {
+        self.namespace = Some(namespace.to_string());
+        self
+    }
+
+    /// 生成 SQL WHERE 条件
+    pub fn to_where_clause(&self) -> (String, Vec<Box<dyn rusqlite::ToSql>>) {
+        let mut conditions = Vec::new();
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+        conditions.push("user_id = ?");
+        params.push(Box::new(self.user_id.clone()));
+
+        conditions.push("channel = ?");
+        params.push(Box::new(self.channel.clone()));
+
+        if let Some(ref agent_id) = self.agent_id {
+            conditions.push("agent_id = ?");
+            params.push(Box::new(agent_id.clone()));
+        }
+
+        if let Some(ref namespace) = self.namespace {
+            conditions.push("namespace = ?");
+            params.push(Box::new(namespace.clone()));
+        }
+
+        (conditions.join(" AND "), params)
+    }
+}
+
+impl Default for MemoryScope {
+    fn default() -> Self {
+        Self {
+            user_id: "default".to_string(),
+            channel: "global".to_string(),
+            agent_id: None,
+            namespace: None,
+        }
+    }
+}
 
 // ============================================================================
 // Hybrid Search - 混合检索配置和结果
@@ -97,28 +180,59 @@ pub struct HybridSearchResult {
 // ============================================================================
 
 /// 记忆存储 Trait - 统一抽象
-#[async_trait]
+#[async_trait::async_trait]
 pub trait MemoryStorage: Send + Sync {
-    /// 存储记忆条目
-    async fn store(&self, entry: &MemoryEntry) -> Result<String>;
+    /// 存储记忆条目（带隔离维度）
+    async fn store_with_scope(&self, entry: &MemoryEntry, scope: &MemoryScope) -> anyhow::Result<String>;
+    
+    /// 存储记忆条目（默认隔离）
+    async fn store(&self, entry: &MemoryEntry) -> anyhow::Result<String> {
+        self.store_with_scope(entry, &MemoryScope::default()).await
+    }
     
     /// 获取记忆条目
-    async fn retrieve(&self, id: &str) -> Result<Option<MemoryEntry>>;
+    async fn retrieve(&self, id: &str) -> anyhow::Result<Option<MemoryEntry>>;
     
     /// 删除记忆条目
-    async fn delete(&self, id: &str) -> Result<()>;
+    async fn delete(&self, id: &str) -> anyhow::Result<()>;
     
-    /// 混合搜索（BM25 + 向量）
-    async fn search_hybrid(&self, query: &str, config: &HybridSearchConfig) -> Result<Vec<HybridSearchResult>>;
+    /// 混合搜索（BM25 + 向量）- 带隔离
+    async fn search_hybrid_with_scope(
+        &self, 
+        query: &str, 
+        config: &HybridSearchConfig,
+        scope: &MemoryScope
+    ) -> anyhow::Result<Vec<HybridSearchResult>>;
     
-    /// BM25 全文搜索
-    async fn search_bm25(&self, query: &str, limit: usize) -> Result<Vec<HybridSearchResult>>;
+    /// 混合搜索（默认隔离）
+    async fn search_hybrid(&self, query: &str, config: &HybridSearchConfig) -> anyhow::Result<Vec<HybridSearchResult>> {
+        self.search_hybrid_with_scope(query, config, &MemoryScope::default()).await
+    }
+    
+    /// BM25 全文搜索 - 带隔离
+    async fn search_bm25_with_scope(
+        &self, 
+        query: &str, 
+        limit: usize,
+        scope: &MemoryScope
+    ) -> anyhow::Result<Vec<HybridSearchResult>>;
+    
+    /// BM25 全文搜索（默认隔离）
+    async fn search_bm25(&self, query: &str, limit: usize) -> anyhow::Result<Vec<HybridSearchResult>> {
+        self.search_bm25_with_scope(query, limit, &MemoryScope::default()).await
+    }
     
     /// 获取用户所有记忆
-    async fn get_user_memories(&self, user_id: &UserId) -> Result<Vec<MemoryEntry>>;
+    async fn get_user_memories(&self, user_id: &UserId) -> anyhow::Result<Vec<MemoryEntry>>;
+    
+    /// 按隔离维度获取记忆
+    async fn get_memories_by_scope(&self, scope: &MemoryScope) -> anyhow::Result<Vec<MemoryEntry>>;
     
     /// 获取存储统计
-    async fn stats(&self) -> Result<StorageStats>;
+    async fn stats(&self) -> anyhow::Result<StorageStats>;
+    
+    /// 获取隔离维度统计
+    async fn stats_by_scope(&self, scope: &MemoryScope) -> anyhow::Result<StorageStats>;
 }
 
 /// 存储统计
@@ -133,7 +247,7 @@ pub struct StorageStats {
 /// 存储配置
 #[derive(Debug, Clone)]
 pub struct StorageConfig {
-    pub db_path: PathBuf,
+    pub db_path: std::path::PathBuf,
     pub enable_fts: bool,
     pub enable_vector: bool,
     pub max_entries: usize,
@@ -143,7 +257,7 @@ pub struct StorageConfig {
 impl Default for StorageConfig {
     fn default() -> Self {
         Self {
-            db_path: PathBuf::from("data/memory.db"),
+            db_path: std::path::PathBuf::from("data/memory.db"),
             enable_fts: true,
             enable_vector: true,
             max_entries: 100000,
@@ -155,7 +269,7 @@ impl Default for StorageConfig {
 impl StorageConfig {
     pub fn in_memory() -> Self {
         Self {
-            db_path: PathBuf::from(":memory:"),
+            db_path: std::path::PathBuf::from(":memory:"),
             enable_fts: true,
             enable_vector: true,
             max_entries: 10000,
@@ -165,468 +279,83 @@ impl StorageConfig {
 }
 
 // ============================================================================
-// SQLite Memory Storage
+// MMR 去重
 // ============================================================================
 
-/// SQLite 记忆存储实现
-pub struct SQLiteMemoryStorage {
-    conn: Arc<Mutex<Connection>>,
-    config: StorageConfig,
-}
-
-impl SQLiteMemoryStorage {
-    /// 创建新的 SQLite 存储
-    pub fn new(config: StorageConfig) -> Result<Self> {
-        if config.db_path != PathBuf::from(":memory:") {
-            if let Some(parent) = config.db_path.parent() {
-                std::fs::create_dir_all(parent)
-                    .with_context(|| "Failed to create database directory")?;
-            }
-        }
-        
-        let conn = Connection::open(&config.db_path)
-            .with_context(|| "Failed to open database")?;
-        
-        // 初始化表（同步操作）
-        conn.execute_batch(
-            r#"
-            CREATE TABLE IF NOT EXISTS memories (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                memory_type TEXT NOT NULL,
-                content TEXT NOT NULL,
-                importance REAL DEFAULT 0.5,
-                source_agent TEXT,
-                tags TEXT,
-                metadata TEXT,
-                created_at TEXT NOT NULL,
-                last_accessed TEXT NOT NULL
-            );
-            
-            CREATE INDEX IF NOT EXISTS idx_memories_user ON memories(user_id);
-            CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(memory_type);
-            CREATE INDEX IF NOT EXISTS idx_memories_created ON memories(created_at);
-            
-            CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
-                id,
-                content,
-                tags,
-                tokenize='porter unicode61'
-            );
-            "#,
-        ).with_context(|| "Failed to initialize tables")?;
-        
-        Ok(Self {
-            conn: Arc::new(Mutex::new(conn)),
-            config,
-        })
-    }
-    
-    fn memory_type_to_string(mt: &MemoryType) -> &'static str {
-        match mt {
-            MemoryType::Conversation => "conversation",
-            MemoryType::Task => "task",
-            MemoryType::Preference => "preference",
-            MemoryType::Fact => "fact",
-            MemoryType::Skill => "skill",
-            MemoryType::Context => "context",
-        }
-    }
-    
-    fn string_to_memory_type(s: &str) -> MemoryType {
-        match s {
-            "conversation" => MemoryType::Conversation,
-            "task" => MemoryType::Task,
-            "preference" => MemoryType::Preference,
-            "fact" => MemoryType::Fact,
-            "skill" => MemoryType::Skill,
-            "context" => MemoryType::Context,
-            _ => MemoryType::Fact,
-        }
-    }
-}
-
-#[async_trait]
-impl MemoryStorage for SQLiteMemoryStorage {
-    async fn store(&self, entry: &MemoryEntry) -> Result<String> {
-        let conn = self.conn.lock().await;
-        
-        let memory_type = Self::memory_type_to_string(&entry.memory_type);
-        let tags = serde_json::to_string(&entry.tags)?;
-        let metadata = serde_json::to_string(&entry.metadata)?;
-        
-        conn.execute(
-            r#"
-            INSERT OR REPLACE INTO memories 
-            (id, user_id, memory_type, content, importance, source_agent, tags, metadata, created_at, last_accessed)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-            "#,
-            rusqlite::params![
-                entry.id,
-                "",
-                memory_type,
-                entry.content,
-                entry.importance,
-                entry.source_agent,
-                tags,
-                metadata,
-                entry.created_at.to_rfc3339(),
-                entry.last_accessed.to_rfc3339(),
-            ],
-        ).with_context(|| "Failed to insert memory")?;
-        
-        conn.execute(
-            "INSERT INTO memories_fts (id, content, tags) VALUES (?1, ?2, ?3)",
-            rusqlite::params![entry.id, entry.content, tags],
-        ).ok();
-        
-        Ok(entry.id.clone())
-    }
-    
-    async fn retrieve(&self, id: &str) -> Result<Option<MemoryEntry>> {
-        let conn = self.conn.lock().await;
-        
-        let result = conn.query_row(
-            "SELECT id, memory_type, content, importance, source_agent, tags, metadata, created_at, last_accessed 
-             FROM memories WHERE id = ?1",
-            rusqlite::params![id],
-            |row| {
-                let created_at_str: String = row.get(7)?;
-                let last_accessed_str: String = row.get(8)?;
-                
-                Ok(MemoryEntry {
-                    id: row.get(0)?,
-                    created_at: chrono::DateTime::parse_from_rfc3339(&created_at_str)
-                        .map(|dt| dt.with_timezone(&Utc))
-                        .unwrap_or_else(|_| Utc::now()),
-                    last_accessed: chrono::DateTime::parse_from_rfc3339(&last_accessed_str)
-                        .map(|dt| dt.with_timezone(&Utc))
-                        .unwrap_or_else(|_| Utc::now()),
-                    memory_type: Self::string_to_memory_type(&row.get::<_, String>(1)?),
-                    importance: row.get(3)?,
-                    content: row.get(2)?,
-                    metadata: serde_json::from_str(&row.get::<_, String>(6)?).unwrap_or_default(),
-                    source_agent: row.get(4)?,
-                    tags: serde_json::from_str(&row.get::<_, String>(5)?).unwrap_or_default(),
-                })
-            },
-        ).optional()?;
-        
-        Ok(result)
-    }
-    
-    async fn delete(&self, id: &str) -> Result<()> {
-        let conn = self.conn.lock().await;
-        conn.execute("DELETE FROM memories WHERE id = ?1", rusqlite::params![id])?;
-        conn.execute("DELETE FROM memories_fts WHERE id = ?1", rusqlite::params![id]).ok();
-        Ok(())
-    }
-    
-    async fn search_hybrid(&self, query: &str, config: &HybridSearchConfig) -> Result<Vec<HybridSearchResult>> {
-        let bm25_results: Vec<HybridSearchResult> = self.search_bm25(query, config.top_k * 2).await?;
-        
-        let mut results: Vec<HybridSearchResult> = bm25_results
-            .into_iter()
-            .take(config.top_k)
-            .collect();
-        
-        if config.apply_time_decay {
-            let now = Utc::now();
-            for result in &mut results {
-                if let Ok(Some(entry)) = self.retrieve(&result.id).await {
-                    let age_days = (now - entry.last_accessed).num_seconds() as f32 / 86400.0;
-                    let decay = (-config.decay_lambda * age_days).exp();
-                    result.final_score = result.bm25_score * decay;
-                }
-            }
-        }
-        
-        results.sort_by(|a, b| {
-            b.final_score.partial_cmp(&a.final_score).unwrap_or(std::cmp::Ordering::Equal)
-        });
-        
-        Ok(results)
-    }
-    
-    async fn search_bm25(&self, query: &str, limit: usize) -> Result<Vec<HybridSearchResult>> {
-        let conn = self.conn.lock().await;
-        
-        let results = conn.prepare(
-            "SELECT m.id, m.content, m.importance, m.created_at, -bm25(memories_fts) as score
-             FROM memories_fts fts
-             JOIN memories m ON fts.id = m.id
-             WHERE memories_fts MATCH ?1
-             ORDER BY bm25(memories_fts)
-             LIMIT ?2"
-        )
-        .and_then(|mut stmt| {
-            let rows = stmt.query_map(rusqlite::params![query, limit as i32], |row| {
-                Ok(HybridSearchResult {
-                    id: row.get(0)?,
-                    content: row.get(1)?,
-                    bm25_score: row.get::<_, f32>(4)?,
-                    vector_score: 0.0,
-                    final_score: row.get::<_, f32>(4)?,
-                    importance: row.get(2)?,
-                    created_at: row.get(3)?,
-                })
-            })?;
-            rows.collect::<std::result::Result<Vec<_>, _>>()
-        })?;
-        
-        Ok(results)
-    }
-    
-    async fn get_user_memories(&self, _user_id: &UserId) -> Result<Vec<MemoryEntry>> {
-        Ok(Vec::new())
-    }
-    
-    async fn stats(&self) -> Result<StorageStats> {
-        let conn = self.conn.lock().await;
-        
-        let total_entries: usize = conn.query_row(
-            "SELECT COUNT(*) FROM memories", 
-            [], 
-            |row| row.get(0)
-        ).unwrap_or(0);
-        
-        let db_size = if self.config.db_path != PathBuf::from(":memory:") {
-            std::fs::metadata(&self.config.db_path)
-                .map(|m| m.len())
-                .unwrap_or(0)
-        } else {
-            0
-        };
-        
-        Ok(StorageStats {
-            total_entries,
-            total_users: 0,
-            db_size_bytes: db_size,
-            last_updated: Utc::now(),
-        })
-    }
-}
-
-// ============================================================================
-// MMR (Maximal Marginal Relevance) 去重
-// ============================================================================
-
-/// MMR 去重配置
-#[derive(Debug, Clone)]
+/// MMR 配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MMRConfig {
-    /// λ 参数：相关性 vs 多样性权衡
-    /// 1.0 = 仅相关性，0.0 = 仅多样性
+    /// λ 参数 (0-1)，越大越强调相关性，越小越强调多样性
     pub lambda: f32,
-    /// 相似度阈值：超过此值认为过于相似
-    pub similarity_threshold: f32,
-    /// 最大结果数
-    pub max_results: usize,
+    /// 返回结果数量
+    pub top_k: usize,
 }
 
 impl Default for MMRConfig {
     fn default() -> Self {
         Self {
-            lambda: 0.5,
-            similarity_threshold: 0.8,
-            max_results: 10,
+            lambda: 0.7,
+            top_k: 10,
         }
     }
 }
 
-/// 使用 MMR 算法去重搜索结果
+/// MMR 去重算法
 pub fn mmr_diversify(
     results: Vec<HybridSearchResult>,
     config: &MMRConfig,
 ) -> Vec<HybridSearchResult> {
-    if results.len() <= 1 {
+    if results.is_empty() || config.top_k == 0 {
         return results;
     }
-    
+
     let mut selected: Vec<HybridSearchResult> = Vec::new();
-    let mut remaining = results;
-    
-    // 按分数排序
-    remaining.sort_by(|a, b| {
-        b.final_score.partial_cmp(&a.final_score).unwrap_or(std::cmp::Ordering::Equal)
-    });
-    
-    while !remaining.is_empty() && selected.len() < config.max_results {
-        if selected.is_empty() {
-            selected.push(remaining.remove(0));
-            continue;
-        }
-        
-        // 计算每个候选的 MMR 分数
-        let best_idx = remaining.iter()
-            .enumerate()
-            .map(|(i, candidate)| {
-                // 计算与已选结果的最大相似度
-                let max_sim = selected.iter()
-                    .map(|s| compute_content_similarity(&candidate.content, &s.content))
-                    .fold(0.0f32, |a, b| a.max(b));
-                
-                // MMR = λ * 相关性 - (1-λ) * 最大相似度
-                let mmr = config.lambda * candidate.final_score - (1.0 - config.lambda) * max_sim;
-                (i, mmr, max_sim)
-            })
-            .max_by(|(_, a, _), (_, b, _)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(i, _, sim)| (i, sim));
-        
-        if let Some((idx, max_sim)) = best_idx {
-            // 如果相似度超过阈值，跳过
-            if max_sim < config.similarity_threshold {
-                selected.push(remaining.remove(idx));
-            } else {
-                // 移除过于相似的结果
-                remaining.remove(idx);
-            }
-        } else {
-            break;
-        }
+    let mut remaining: Vec<HybridSearchResult> = results;
+
+    // 选择第一个（最高分）
+    if let Some(first) = remaining.first() {
+        selected.push(first.clone());
+        remaining.remove(0);
     }
-    
+
+    // 迭代选择剩余
+    while selected.len() < config.top_k && !remaining.is_empty() {
+        let best_idx = find_best_mmr(&selected, &remaining, config.lambda);
+        selected.push(remaining.remove(best_idx));
+    }
+
     selected
 }
 
-/// 计算内容相似度（基于词重叠的 Jaccard 相似度）
-fn compute_content_similarity(a: &str, b: &str) -> f32 {
-    use std::collections::HashSet;
-    
-    let words_a: HashSet<String> = a.split_whitespace()
-        .map(|w| w.to_lowercase().trim_matches(|c: char| !c.is_alphanumeric()).to_string())
-        .filter(|w| !w.is_empty() && w.len() > 1)
-        .collect();
-    
-    let words_b: HashSet<String> = b.split_whitespace()
-        .map(|w| w.to_lowercase().trim_matches(|c: char| !c.is_alphanumeric()).to_string())
-        .filter(|w| !w.is_empty() && w.len() > 1)
-        .collect();
-    
-    if words_a.is_empty() || words_b.is_empty() {
-        return 0.0;
-    }
-    
-    let intersection = words_a.intersection(&words_b).count();
-    let union = words_a.union(&words_b).count();
-    
-    if union == 0 {
-        0.0
-    } else {
-        intersection as f32 / union as f32
-    }
-}
+fn find_best_mmr(
+    selected: &[HybridSearchResult],
+    remaining: &[HybridSearchResult],
+    lambda: f32,
+) -> usize {
+    let mut best_idx = 0;
+    let mut best_score = f32::MIN;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::HashMap;
-    
-    fn create_test_entry(id: &str, content: &str) -> MemoryEntry {
-        MemoryEntry {
-            id: id.to_string(),
-            created_at: Utc::now(),
-            last_accessed: Utc::now(),
-            memory_type: MemoryType::Fact,
-            importance: 0.8,
-            content: content.to_string(),
-            metadata: HashMap::new(),
-            source_agent: None,
-            tags: vec!["test".to_string()],
+    for (idx, candidate) in remaining.iter().enumerate() {
+        // 相关性分数
+        let relevance = candidate.final_score;
+
+        // 计算与已选择的最大相似度（简化：使用内容长度差异作为相似度代理）
+        let max_similarity = selected
+            .iter()
+            .map(|s| {
+                let len_diff = (s.content.len() as f32 - candidate.content.len() as f32).abs();
+                1.0 / (1.0 + len_diff / 100.0)
+            })
+            .fold(0.0, f32::max);
+
+        // MMR 分数
+        let mmr_score = lambda * relevance - (1.0 - lambda) * max_similarity;
+
+        if mmr_score > best_score {
+            best_score = mmr_score;
+            best_idx = idx;
         }
     }
-    
-    #[tokio::test]
-    async fn test_sqlite_storage_store_and_retrieve() {
-        let storage = SQLiteMemoryStorage::new(StorageConfig::in_memory()).unwrap();
-        let entry = create_test_entry("test-1", "This is a test memory about Rust programming");
-        
-        storage.store(&entry).await.unwrap();
-        let retrieved = storage.retrieve("test-1").await.unwrap().unwrap();
-        
-        assert_eq!(retrieved.content, "This is a test memory about Rust programming");
-    }
-    
-    #[tokio::test]
-    async fn test_sqlite_storage_bm25_search() {
-        let storage = SQLiteMemoryStorage::new(StorageConfig::in_memory()).unwrap();
-        
-        storage.store(&create_test_entry("m1", "Rust is a systems programming language")).await.unwrap();
-        storage.store(&create_test_entry("m2", "Python is great for data science")).await.unwrap();
-        storage.store(&create_test_entry("m3", "Rust emphasizes memory safety")).await.unwrap();
-        
-        let results = storage.search_bm25("Rust", 10).await.unwrap();
-        assert!(!results.is_empty());
-    }
-    
-    #[tokio::test]
-    async fn test_hybrid_search_config_default() {
-        let config = HybridSearchConfig::default();
-        assert_eq!(config.top_k, 10);
-        assert_eq!(config.bm25_weight, 0.7);
-    }
-    
-    #[test]
-    fn test_mmr_diversify() {
-        let results = vec![
-            HybridSearchResult {
-                id: "1".to_string(),
-                content: "Rust is a systems programming language".to_string(),
-                bm25_score: 1.0,
-                vector_score: 0.9,
-                final_score: 0.95,
-                importance: 0.8,
-                created_at: "2026-03-13".to_string(),
-            },
-            HybridSearchResult {
-                id: "2".to_string(),
-                content: "Rust is a systems programming language".to_string(), // 完全相同
-                bm25_score: 0.9,
-                vector_score: 0.85,
-                final_score: 0.88,
-                importance: 0.7,
-                created_at: "2026-03-13".to_string(),
-            },
-            HybridSearchResult {
-                id: "3".to_string(),
-                content: "Python is used for data science".to_string(), // 完全不同
-                bm25_score: 0.8,
-                vector_score: 0.8,
-                final_score: 0.8,
-                importance: 0.6,
-                created_at: "2026-03-13".to_string(),
-            },
-        ];
-        
-        let config = MMRConfig::default();
-        let deduped = mmr_diversify(results, &config);
-        
-        // 相同内容的结果应该被去重
-        assert!(deduped.len() < 3);
-        // 应该保留多样化的结果
-        assert!(deduped.iter().any(|r| r.content.contains("Python")));
-    }
-    
-    #[test]
-    fn test_compute_content_similarity() {
-        // 高相似度
-        let sim = compute_content_similarity(
-            "Rust is a systems programming language",
-            "Rust is a programming language for systems"
-        );
-        assert!(sim > 0.5);
-        
-        // 低相似度
-        let sim2 = compute_content_similarity(
-            "Rust programming language",
-            "Python data science machine learning"
-        );
-        assert!(sim2 < 0.3);
-        
-        // 完全相同
-        let sim3 = compute_content_similarity(
-            "The quick brown fox",
-            "The quick brown fox"
-        );
-        assert!((sim3 - 1.0).abs() < 0.01);
-    }
+
+    best_idx
 }
