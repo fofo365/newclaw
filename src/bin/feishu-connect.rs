@@ -34,9 +34,9 @@ struct LLMEventHandler {
 }
 
 impl LLMEventHandler {
-    fn new(api_key: String, model: String) -> Self {
+    async fn new(api_key: String, model: String) -> Self {
         let sender = MessageSender::new("https://open.feishu.cn");
-        let tool_manager = Arc::new(ToolManager::new());
+        let tool_manager = Arc::new(ToolManager::new().await);
         Self {
             sender,
             api_key,
@@ -47,7 +47,7 @@ impl LLMEventHandler {
 
     /// 调用 GLM 生成回复（支持工具调用）
     async fn call_llm(&self, prompt: &str) -> Result<String> {
-        let tools = self.tool_manager.get_all_tools();
+        let tools = self.tool_manager.get_all_tools().await;
         let system_prompt = build_tools_system_prompt(&tools);
 
         // 构建请求体
@@ -189,9 +189,17 @@ impl LLMEventHandler {
                     ) {
                         let mut arguments = std::collections::HashMap::new();
                         for (k, v) in args {
-                            if let Some(s) = v.as_str() {
-                                arguments.insert(k.clone(), s.to_string());
-                            }
+                            // 将值转换为字符串
+                            let value_str = if v.is_string() {
+                                v.as_str().unwrap_or("").to_string()
+                            } else if v.is_number() {
+                                v.to_string()
+                            } else if v.is_boolean() {
+                                v.to_string()
+                            } else {
+                                v.to_string()
+                            };
+                            arguments.insert(k.clone(), value_str);
                         }
                         calls.push(ToolCallRequest {
                             name: name.to_string(),
@@ -403,7 +411,7 @@ async fn main() -> Result<()> {
         log_level: newclaw::feishu_websocket::LogLevel::Info,
     };
 
-    let event_handler = Arc::new(LLMEventHandler::new(api_key, model));
+    let event_handler = Arc::new(LLMEventHandler::new(api_key, model).await);
     let manager = Arc::new(newclaw::feishu_websocket::FeishuWebSocketManager::new(
         ws_config,
         event_handler,

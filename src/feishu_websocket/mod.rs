@@ -38,7 +38,7 @@ pub use retry::{
     ErrorCategory, ErrorSeverity, AlertRule, FallbackStrategy,
     CacheFallback, DefaultValueFallback,
 };
-pub use tools::{ToolManager, ToolCallRequest, ToolResult, Tool, build_tools_system_prompt};
+pub use tools::{ToolManager, ToolCallRequest, ToolResult, build_tools_system_prompt};
 
 use serde::{Deserialize, Serialize};
 use std::time::Duration;

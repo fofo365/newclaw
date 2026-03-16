@@ -7,11 +7,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🧪 测试工具调用功能\n");
 
     // 创建工具管理器
-    let manager = ToolManager::new();
+    let manager = ToolManager::new().await;
 
     // 显示所有可用工具
     println!("📋 可用工具列表:");
-    for tool in manager.get_all_tools() {
+    for tool in manager.get_all_tools().await {
         println!("  - {}: {}", tool.name, tool.description);
     }
     println!();
