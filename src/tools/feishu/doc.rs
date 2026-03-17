@@ -20,7 +20,17 @@ impl Default for FeishuDocTool {
 
 impl FeishuDocTool {
     pub fn new() -> Self {
-        let config = FeishuConfig::default();
+        let config = match FeishuConfig::from_config_file("/etc/newclaw/feishu-connect.toml") {
+            Ok(cfg) => {
+                tracing::info!("✅ Feishu配置加载成功, user_access_token: {}", 
+                    cfg.user_access_token.as_ref().map(|_| "已设置").unwrap_or("未设置"));
+                cfg
+            },
+            Err(e) => {
+                tracing::warn!("⚠️  Feishu配置加载失败: {}, 使用默认配置", e);
+                FeishuConfig::default()
+            }
+        };
         Self {
             client: Arc::new(FeishuClient::new(config)),
         }

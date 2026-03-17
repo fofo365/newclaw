@@ -15,6 +15,7 @@ pub struct FeishuConfig {
     pub app_id: String,
     pub app_secret: String,
     pub base_url: String,
+    pub user_access_token: Option<String>,
 }
 
 impl Default for FeishuConfig {
@@ -23,7 +24,45 @@ impl Default for FeishuConfig {
             app_id: String::new(),
             app_secret: String::new(),
             base_url: "https://open.feishu.cn/open-apis".to_string(),
+            user_access_token: None,
         }
+    }
+}
+
+impl FeishuConfig {
+    pub fn from_config_file(path: &str) -> Result<Self> {
+        let content = std::fs::read_to_string(path)?;
+        let config: toml::Value = content.parse()?;
+        
+        let app_id = config.get("feishu")
+            .and_then(|f| f.get("accounts"))
+            .and_then(|a| a.get("default"))
+            .and_then(|d| d.get("app_id"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+            
+        let app_secret = config.get("feishu")
+            .and_then(|f| f.get("accounts"))
+            .and_then(|a| a.get("default"))
+            .and_then(|d| d.get("app_secret"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+            
+        let user_access_token = config.get("feishu")
+            .and_then(|f| f.get("accounts"))
+            .and_then(|a| a.get("default"))
+            .and_then(|d| d.get("access_token"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        
+        Ok(Self {
+            app_id,
+            app_secret,
+            base_url: "https://open.feishu.cn/open-apis".to_string(),
+            user_access_token,
+        })
     }
 }
 
@@ -56,7 +95,7 @@ pub struct TaskStatus {
 pub struct FeishuClient {
     config: FeishuConfig,
     http_client: Client,
-    access_token: Arc<RwLock<Option<AccessToken>>>,
+    tenant_access_token: Arc<RwLock<Option<AccessToken>>>,
 }
 
 impl FeishuClient {
@@ -64,15 +103,20 @@ impl FeishuClient {
         Self {
             config,
             http_client: Client::new(),
-            access_token: Arc::new(RwLock::new(None)),
+            tenant_access_token: Arc::new(RwLock::new(None)),
         }
     }
 
-    /// 获取访问令牌
+    /// 获取访问令牌（优先使用用户令牌，否则使用租户令牌）
     pub async fn get_access_token(&self) -> Result<String> {
-        // 检查是否有缓存的令牌
+        // 优先使用配置的用户访问令牌
+        if let Some(user_token) = &self.config.user_access_token {
+            return Ok(user_token.clone());
+        }
+
+        // 否则使用租户令牌
         {
-            let token = self.access_token.read().await;
+            let token = self.tenant_access_token.read().await;
             if let Some(token) = token.as_ref() {
                 let now = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -86,7 +130,7 @@ impl FeishuClient {
             }
         }
 
-        // 获取新的访问令牌
+        // 获取新的租户访问令牌
         let url = format!("{}/auth/v3/tenant_access_token/internal", self.config.base_url);
         
         let response = self.http_client
@@ -116,7 +160,7 @@ impl FeishuClient {
 
         // 缓存令牌
         {
-            let mut token = self.access_token.write().await;
+            let mut token = self.tenant_access_token.write().await;
             *token = Some(access_token.clone());
         }
 

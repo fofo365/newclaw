@@ -647,6 +647,7 @@ impl DashboardState {
             app_id: app_id.clone(),
             app_secret: app_secret.clone(),
             base_url: "https://open.feishu.cn/open-apis".to_string(),
+            user_access_token: None,
         };
 
         let client = FeishuClient::new(client_config);

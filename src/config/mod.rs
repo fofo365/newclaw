@@ -82,6 +82,42 @@ impl Default for LLMConfig {
     }
 }
 
+impl LLMConfig {
+    /// 验证配置
+    pub fn validate(&self) -> Result<(), String> {
+        // 验证 temperature 范围 (0.0 - 2.0)
+        if self.temperature < 0.0 || self.temperature > 2.0 {
+            return Err(format!(
+                "temperature must be between 0.0 and 2.0, got {}",
+                self.temperature
+            ));
+        }
+        
+        // 验证 max_tokens 范围 (1 - 128000)
+        if self.max_tokens == 0 {
+            return Err("max_tokens must be greater than 0".to_string());
+        }
+        if self.max_tokens > 128000 {
+            return Err(format!(
+                "max_tokens must be less than or equal to 128000, got {}",
+                self.max_tokens
+            ));
+        }
+        
+        // 验证 provider
+        let valid_providers = ["openai", "claude", "qwencode", "glm", "zhipu", "z.ai", "glmcode", "ollama"];
+        let provider_lower = self.provider.to_lowercase();
+        if !valid_providers.iter().any(|p| provider_lower.starts_with(p)) {
+            return Err(format!(
+                "unknown provider: {}. Valid providers: {:?}",
+                self.provider, valid_providers
+            ));
+        }
+        
+        Ok(())
+    }
+}
+
 fn default_provider() -> String {
     std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "glm".to_string())
 }
@@ -269,6 +305,11 @@ impl Config {
         
         // 环境变量覆盖
         config.apply_env_overrides();
+        
+        // 验证配置
+        if let Err(e) = config.llm.validate() {
+            tracing::warn!("配置验证警告: {}", e);
+        }
         
         Ok(config)
     }
