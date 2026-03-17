@@ -240,7 +240,13 @@ impl FeishuClient {
         }
 
         let result: serde_json::Value = response.json().await?;
-        Ok(result["document"]["document_id"].as_str().unwrap_or("").to_string())
+        
+        // 飞书 API 返回结构: { "code": 0, "data": { "document": { "document_id": "..." } } }
+        let doc_id = result["data"]["document"]["document_id"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("No document_id in response"))?;
+            
+        Ok(doc_id.to_string())
     }
 
     /// 创建文档（带内容）
