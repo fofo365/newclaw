@@ -1,10 +1,11 @@
-// Router Module - v0.5.1
+// Router Module - v0.7.2
 //
 // 多层路由架构：
 // - Router: 路由实体（顶级/上级/下级/特殊）
 // - RouterManager: 路由生命周期管理
 // - RouterConnector: 路由间通信
 // - PolicyEngine: 权限策略引擎
+// - AuditLog: 审计日志系统
 
 pub mod router;
 pub mod manager;
@@ -12,12 +13,14 @@ pub mod connector;
 pub mod policy;
 pub mod isolation;
 pub mod sandbox;
+pub mod audit_log;
 
 pub use router::{Router, RouterId, RouterLevel, RouterCapabilities};
 pub use manager::RouterManager;
 pub use connector::{RouterConnector, RouterMessage, Action};
 pub use policy::{PolicyEngine, Policy, PolicyDecision};
 pub use isolation::{IsolationManager, IsolationBoundary, IsolationLevel, IsolationConfig, ResourceQuota};
+pub use audit_log::{AuditLog, AuditEvent, AuditEventType, AuditSeverity};
 
 use serde::{Deserialize, Serialize};
 

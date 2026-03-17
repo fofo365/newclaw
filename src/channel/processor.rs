@@ -383,7 +383,7 @@ impl ChannelProcessor {
         let tool_definitions = self.get_tool_definitions().await;
 
         // 工具调用循环
-        let max_rounds = 5;
+        let max_rounds = 15;
 
         for _round in 0..max_rounds {
             let request = ChatRequest {
