@@ -46,6 +46,81 @@ const MAX_HISTORY_LENGTH: usize = 20;
 /// 已处理消息去重缓存大小
 const MAX_PROCESSED_MESSAGES: usize = 1000;
 
+/// 已处理消息过期时间（秒），默认 24 小时
+const PROCESSED_MESSAGE_TTL_SECS: i64 = 86400;
+
+/// 消息去重存储（持久化）
+pub struct ProcessedMessageStore {
+    conn: Arc<Mutex<Connection>>,
+}
+
+impl ProcessedMessageStore {
+    /// 创建新的去重存储
+    pub fn new(db_path: &PathBuf) -> Result<Self> {
+        if let Some(parent) = db_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        
+        let conn = Connection::open(db_path)?;
+        
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS processed_messages (
+                message_id TEXT PRIMARY KEY,
+                processed_at TEXT NOT NULL
+            );
+            
+            CREATE INDEX IF NOT EXISTS idx_processed_at ON processed_messages(processed_at);
+            "#,
+        )?;
+        
+        info!("消息去重存储初始化完成: {}", db_path.display());
+        
+        Ok(Self {
+            conn: Arc::new(Mutex::new(conn)),
+        })
+    }
+    
+    /// 检查消息是否已处理
+    pub async fn is_processed(&self, message_id: &str) -> Result<bool> {
+        let conn = self.conn.lock().await;
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM processed_messages WHERE message_id = ?",
+            params![message_id],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+    
+    /// 标记消息为已处理
+    pub async fn mark_processed(&self, message_id: &str) -> Result<()> {
+        let conn = self.conn.lock().await;
+        conn.execute(
+            "INSERT OR IGNORE INTO processed_messages (message_id, processed_at) VALUES (?, ?)",
+            params![message_id, Utc::now().to_rfc3339()],
+        )?;
+        Ok(())
+    }
+    
+    /// 清理过期的已处理消息记录
+    pub async fn cleanup_expired(&self) -> Result<usize> {
+        let conn = self.conn.lock().await;
+        let cutoff = Utc::now() - chrono::Duration::seconds(PROCESSED_MESSAGE_TTL_SECS);
+        let cutoff_str = cutoff.to_rfc3339();
+        
+        let deleted = conn.execute(
+            "DELETE FROM processed_messages WHERE processed_at < ?",
+            params![cutoff_str],
+        )?;
+        
+        if deleted > 0 {
+            info!("清理过期消息记录: {} 条", deleted);
+        }
+        
+        Ok(deleted)
+    }
+}
+
 /// 会话历史存储（持久化）
 pub struct SessionHistoryStore {
     conn: Arc<Mutex<Connection>>,
@@ -201,8 +276,8 @@ struct FeishuProcessorHandler {
     session_history: Arc<RwLock<HashMap<String, Vec<Message>>>>,
     /// 会话历史存储（持久化）
     session_store: Arc<SessionHistoryStore>,
-    /// 已处理消息 ID（去重）
-    processed_messages: Arc<RwLock<Vec<String>>>,
+    /// 消息去重存储（持久化）
+    processed_store: Arc<ProcessedMessageStore>,
 }
 
 impl FeishuProcessorHandler {
@@ -212,6 +287,7 @@ impl FeishuProcessorHandler {
         token_manager: Arc<TokenManager>,
         session_history: HashMap<String, Vec<Message>>,
         session_store: Arc<SessionHistoryStore>,
+        processed_store: Arc<ProcessedMessageStore>,
     ) -> Self {
         let sender = MessageSender::new("https://open.feishu.cn");
         Self {
@@ -220,7 +296,7 @@ impl FeishuProcessorHandler {
             token_manager,
             session_history: Arc::new(RwLock::new(session_history)),
             session_store,
-            processed_messages: Arc::new(RwLock::new(Vec::new())),
+            processed_store,
         }
     }
 }
@@ -232,18 +308,21 @@ impl EventHandler for FeishuProcessorHandler {
             FeishuEvent::MessageReceived { open_id, chat_id, content, message_id, .. } => {
                 info!("收到消息 - 用户: {}, 群: {}, message_id: {}", open_id, chat_id, message_id);
                 
-                // 消息去重检查（必须在 spawn 之前检查和标记）
-                {
-                    let mut processed = self.processed_messages.write().await;
-                    if processed.contains(message_id) {
+                // 消息去重检查（使用持久化存储）
+                match self.processed_store.is_processed(message_id).await {
+                    Ok(true) => {
                         info!("消息已处理过，跳过: {}", message_id);
                         return Ok(());
                     }
-                    // 立即标记为已处理
-                    processed.push(message_id.clone());
-                    if processed.len() > MAX_PROCESSED_MESSAGES {
-                        let start = processed.len() - MAX_PROCESSED_MESSAGES;
-                        *processed = processed.split_off(start);
+                    Ok(false) => {
+                        // 标记为已处理
+                        if let Err(e) = self.processed_store.mark_processed(message_id).await {
+                            warn!("标记消息已处理失败: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        warn!("检查消息是否已处理失败: {}", e);
+                        // 继续处理，不要因为去重检查失败而阻止消息处理
                     }
                 }
                 
@@ -552,6 +631,13 @@ async fn main() -> Result<()> {
     let session_history = session_store.load_all().await?;
     info!("✅ 会话历史存储初始化完成");
     
+    // ==================== 初始化消息去重存储 ====================
+    
+    let processed_store = Arc::new(ProcessedMessageStore::new(&data_dir.join("processed_messages.db"))?);
+    // 清理过期的消息记录
+    processed_store.cleanup_expired().await?;
+    info!("✅ 消息去重存储初始化完成");
+    
     // ==================== 初始化 TokenManager ====================
     
     // 获取第一个启用的账号配置
@@ -609,12 +695,13 @@ async fn main() -> Result<()> {
             continue;
         }
         
-        // 创建该账号的处理器（使用共享的 TokenManager 和会话历史）
+        // 创建该账号的处理器（使用共享的 TokenManager、会话历史和去重存储）
         let handler = Arc::new(FeishuProcessorHandler::new(
             processor.clone(),
             token_manager.clone(),
             session_history.clone(),
             session_store.clone(),
+            processed_store.clone(),
         ));
         
         let manager = Arc::new(newclaw::feishu_websocket::FeishuWebSocketManager::new(
