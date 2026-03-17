@@ -62,12 +62,45 @@ impl OpenAIProvider {
             })
         }).collect();
         
-        // 基本请求
-        serde_json::json!({
-            "model": req.model,
-            "messages": messages,
-            "temperature": req.temperature,
-        })
+        // 基础请求 - 总是包含这三个字段
+        let mut req_map = serde_json::Map::new();
+        req_map.insert("model".to_string(), serde_json::json!(req.model));
+        req_map.insert("messages".to_string(), serde_json::json!(messages));
+        req_map.insert("temperature".to_string(), serde_json::json!(req.temperature));
+        
+        // 可选字段 - 只有在有值时才添加，避免 null 值
+        if let Some(max_tokens) = req.max_tokens {
+            req_map.insert("max_tokens".to_string(), serde_json::json!(max_tokens));
+        }
+        
+        if let Some(top_p) = req.top_p {
+            req_map.insert("top_p".to_string(), serde_json::json!(top_p));
+        }
+        
+        if let Some(stop) = req.stop {
+            if !stop.is_empty() {
+                req_map.insert("stop".to_string(), serde_json::json!(stop));
+            }
+        }
+        
+        // tools 字段 - 只有在有值时才添加
+        if let Some(tools) = req.tools {
+            if !tools.is_empty() {
+                let tools_json: Vec<serde_json::Value> = tools.into_iter().map(|t| {
+                    serde_json::json!({
+                        "type": "function",
+                        "function": {
+                            "name": t.name,
+                            "description": t.description,
+                            "parameters": t.parameters,
+                        }
+                    })
+                }).collect();
+                req_map.insert("tools".to_string(), serde_json::json!(tools_json));
+            }
+        }
+        
+        serde_json::Value::Object(req_map)
     }
     
     /// 转换响应格式
