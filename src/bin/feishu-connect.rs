@@ -11,7 +11,6 @@ use tracing::{info, error, warn, debug};
 use std::sync::Arc;
 use chrono::Utc;
 use async_trait::async_trait;
-use serde_json::json;
 use tokio::sync::RwLock;
 use tokio::sync::Mutex;
 use std::path::PathBuf;
@@ -30,8 +29,6 @@ use newclaw::channel::{
 use newclaw::memory::{SQLiteMemoryStorage, StorageConfig};
 use newclaw::context::StrategyEngine;
 use newclaw::tools::ToolRegistry;
-use newclaw::llm::QwenCodeProvider;
-use newclaw::llm::OpenAIProvider;
 use newclaw::llm::{Message, MessageRole};
 
 /// 飞书连接服务默认配置文件路径
@@ -42,9 +39,6 @@ const DEFAULT_DATA_DIR: &str = "/var/lib/newclaw/data";
 
 /// 会话历史最大消息数（用户+助手消息总数）
 const MAX_HISTORY_LENGTH: usize = 20;
-
-/// 已处理消息去重缓存大小
-const MAX_PROCESSED_MESSAGES: usize = 1000;
 
 /// 已处理消息过期时间（秒），默认 24 小时
 const PROCESSED_MESSAGE_TTL_SECS: i64 = 86400;
@@ -266,8 +260,6 @@ impl SessionHistoryStore {
 
 /// 飞书消息处理器（集成 ChannelProcessor + TokenManager）
 struct FeishuProcessorHandler {
-    /// 消息发送器
-    sender: MessageSender,
     /// ChannelProcessor
     processor: Arc<ChannelProcessor>,
     /// Token 管理器
@@ -289,9 +281,7 @@ impl FeishuProcessorHandler {
         session_store: Arc<SessionHistoryStore>,
         processed_store: Arc<ProcessedMessageStore>,
     ) -> Self {
-        let sender = MessageSender::new("https://open.feishu.cn");
         Self {
-            sender,
             processor,
             token_manager,
             session_history: Arc::new(RwLock::new(session_history)),
@@ -552,57 +542,8 @@ async fn main() -> Result<()> {
     let strategy = Arc::new(RwLock::new(StrategyEngine::new()?));
     info!("✅ 策略引擎初始化完成");
     
-    // 5. 创建 LLM Provider（根据配置选择）
-    let llm_provider: Arc<dyn newclaw::llm::LLMProviderV3> = match config.llm.provider.as_str() {
-        "openai" => {
-            let api_key = config.llm.openai.api_key.clone()
-                .or_else(|| std::env::var("OPENAI_API_KEY").ok())
-                .unwrap_or_else(|| {
-                    warn!("未配置 OpenAI API Key");
-                    String::new()
-                });
-            let mut provider = OpenAIProvider::new(api_key);
-            if let Some(base_url) = &config.llm.openai.base_url {
-                provider = provider.with_base_url(base_url.clone());
-                info!("✅ 使用 OpenAI Provider (自定义 URL: {})", base_url);
-            } else {
-                info!("✅ 使用 OpenAI Provider");
-            }
-            Arc::new(provider)
-        }
-        "qwencode" => {
-            let api_key = config.llm.qwencode.api_key.clone()
-                .or_else(|| std::env::var("QWENCODE_API_KEY").ok())
-                .unwrap_or_else(|| {
-                    warn!("未配置 QwenCode API Key");
-                    String::new()
-                });
-            let mut provider = QwenCodeProvider::new(api_key);
-            if let Some(base_url) = &config.llm.qwencode.base_url {
-                provider = provider.with_base_url(base_url.clone());
-                info!("✅ 使用 QwenCode Provider (自定义 URL: {})", base_url);
-            } else {
-                info!("✅ 使用 QwenCode Provider");
-            }
-            Arc::new(provider)
-        }
-        "glm" | "zhipu" => {
-            let api_key = config.llm.glm.api_key.clone()
-                .or_else(|| std::env::var("GLM_API_KEY").ok())
-                .unwrap_or_else(|| {
-                    warn!("未配置 GLM API Key");
-                    String::new()
-                });
-            info!("✅ 使用 GLM Provider");
-            Arc::new(newclaw::llm::GlmProvider::new(api_key))
-        }
-        _ => {
-            warn!("未知的 LLM Provider: {}, 使用 GLM", config.llm.provider);
-            let api_key = config.llm.glm.api_key.clone().unwrap_or_default();
-            Arc::new(newclaw::llm::GlmProvider::new(api_key))
-        }
-    };
-    
+    // 5. 创建 LLM Provider（使用统一的选择器）
+    let llm_provider = newclaw::llm::create_llm_provider(&config)?;
     let model = config.llm.model.clone();
     info!("✅ LLM Provider 初始化完成，模型: {}", model);
     
@@ -641,7 +582,7 @@ async fn main() -> Result<()> {
     // ==================== 初始化 TokenManager ====================
     
     // 获取第一个启用的账号配置
-    let (first_account_name, first_account_config) = config.feishu.accounts
+    let (_first_account_name, first_account_config) = config.feishu.accounts
         .iter()
         .find(|(_, cfg)| cfg.enabled)
         .map(|(name, cfg)| (name.clone(), cfg.clone()))
