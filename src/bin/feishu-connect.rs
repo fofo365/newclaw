@@ -3,6 +3,7 @@
 // 独立服务，用于接收飞书消息并调用 LLM 回复
 //
 // v0.7.0 - 集成 ChannelProcessor，支持记忆、权限、策略机制
+//        - 集成 TokenManager，支持 Token 自动刷新
 
 use anyhow::Result;
 use tracing::{info, error, warn, debug};
@@ -12,10 +13,12 @@ use async_trait::async_trait;
 use serde_json::json;
 use tokio::sync::RwLock;
 use std::path::PathBuf;
+use std::collections::HashMap;
 
 use newclaw::feishu_websocket::{
     EventHandler, FeishuEvent, WebSocketError, WebSocketResult,
     MessageSender,
+    TokenManager, TokenManagerConfig, TokenType,
 };
 use newclaw::channel::{
     ChannelProcessor, ProcessorConfig, ChannelMessage, MessageContent,
@@ -27,7 +30,6 @@ use newclaw::tools::ToolRegistry;
 use newclaw::llm::QwenCodeProvider;
 use newclaw::llm::OpenAIProvider;
 use newclaw::llm::{Message, MessageRole};
-use std::collections::HashMap;
 
 /// 飞书连接服务默认配置文件路径
 const DEFAULT_CONFIG_PATH: &str = "/etc/newclaw/feishu-connect.toml";
@@ -38,16 +40,14 @@ const DEFAULT_DATA_DIR: &str = "/var/lib/newclaw/feishu-connect";
 /// 会话历史最大消息数（用户+助手消息总数）
 const MAX_HISTORY_LENGTH: usize = 20;
 
-/// 飞书消息处理器（集成 ChannelProcessor）
+/// 飞书消息处理器（集成 ChannelProcessor + TokenManager）
 struct FeishuProcessorHandler {
     /// 消息发送器
     sender: MessageSender,
     /// ChannelProcessor
     processor: Arc<ChannelProcessor>,
-    /// 应用 ID
-    app_id: String,
-    /// 应用密钥
-    app_secret: String,
+    /// Token 管理器
+    token_manager: Arc<TokenManager>,
     /// 会话历史（按 chat_id 隔离）
     session_history: Arc<RwLock<HashMap<String, Vec<Message>>>>,
 }
@@ -56,51 +56,15 @@ impl FeishuProcessorHandler {
     /// 创建新的处理器
     fn new(
         processor: Arc<ChannelProcessor>,
-        app_id: String,
-        app_secret: String,
+        token_manager: Arc<TokenManager>,
     ) -> Self {
         let sender = MessageSender::new("https://open.feishu.cn");
         Self {
             sender,
             processor,
-            app_id,
-            app_secret,
+            token_manager,
             session_history: Arc::new(RwLock::new(HashMap::new())),
         }
-    }
-    
-    /// 获取或创建会话历史
-    async fn get_history(&self, chat_id: &str) -> Vec<Message> {
-        let history = self.session_history.read().await;
-        history.get(chat_id).cloned().unwrap_or_default()
-    }
-    
-    /// 更新会话历史
-    async fn update_history(&self, chat_id: &str, user_msg: String, assistant_msg: String) {
-        let mut history = self.session_history.write().await;
-        let session = history.entry(chat_id.to_string()).or_insert_with(Vec::new);
-        
-        // 添加用户消息和助手响应
-        session.push(Message {
-            role: MessageRole::User,
-            content: user_msg,
-            tool_calls: None,
-            tool_call_id: None,
-        });
-        session.push(Message {
-            role: MessageRole::Assistant,
-            content: assistant_msg,
-            tool_calls: None,
-            tool_call_id: None,
-        });
-        
-        // 限制历史长度
-        if session.len() > MAX_HISTORY_LENGTH {
-            let start = session.len() - MAX_HISTORY_LENGTH;
-            *session = session.split_off(start);
-        }
-        
-        debug!("会话历史更新: chat_id={}, 长度={}", chat_id, session.len());
     }
 }
 
@@ -144,11 +108,10 @@ impl EventHandler for FeishuProcessorHandler {
                     metadata: serde_json::Map::new(),
                 };
                 
-                // 使用 ChannelProcessor 处理消息
+                // 克隆需要的变量
                 let processor = self.processor.clone();
                 let chat_id = chat_id.clone();
-                let app_id = self.app_id.clone();
-                let app_secret = self.app_secret.clone();
+                let token_manager = self.token_manager.clone();
                 let session_history = self.session_history.clone();
                 let user_text = text.clone();
                 
@@ -193,14 +156,14 @@ impl EventHandler for FeishuProcessorHandler {
                                     *session = session.split_off(start);
                                 }
                                 
-                                info!("会话历史更新: chat_id={}, 长度={}", chat_id, session.len());
+                                debug!("会话历史更新: chat_id={}, 长度={}", chat_id, session.len());
                             }
                             
-                            // 发送回复
-                            let token = match fetch_access_token(&app_id, &app_secret).await {
-                                Ok((t, _)) => t,
-                                Err(e) => {
-                                    error!("获取 access_token 失败: {}", e);
+                            // 从 TokenManager 获取缓存的 token
+                            let token = match token_manager.get_token().await {
+                                Some(t) => t,
+                                None => {
+                                    error!("Token 不可用，请检查 TokenManager 配置");
                                     return;
                                 }
                             };
@@ -214,10 +177,13 @@ impl EventHandler for FeishuProcessorHandler {
                         Err(e) => {
                             error!("处理消息失败: {}", e);
                             
-                            // 发送错误提示
-                            let token = match fetch_access_token(&app_id, &app_secret).await {
-                                Ok((t, _)) => t,
-                                Err(_) => return,
+                            // 从 TokenManager 获取 token
+                            let token = match token_manager.get_token().await {
+                                Some(t) => t,
+                                None => {
+                                    error!("Token 不可用");
+                                    return;
+                                }
                             };
                             
                             let sender = MessageSender::new("https://open.feishu.cn").with_token(&token);
@@ -259,7 +225,7 @@ async fn main() -> Result<()> {
         .init();
 
     info!("🚀 NewClaw Feishu WebSocket 长连接服务启动...");
-    info!("📦 版本: 0.7.0 (集成 ChannelProcessor + 完整工具集)");
+    info!("📦 版本: 0.7.0 (集成 ChannelProcessor + TokenManager)");
 
     // 加载配置（使用独立配置文件）
     let config = load_config()?;
@@ -293,7 +259,7 @@ async fn main() -> Result<()> {
         &tools,
         data_dir.clone(),
         data_dir.clone(),
-        None, // 权限管理器稍后创建
+        None,
     ).await {
         warn!("部分工具初始化失败: {}", e);
     }
@@ -327,7 +293,6 @@ async fn main() -> Result<()> {
                     String::new()
                 });
             let mut provider = OpenAIProvider::new(api_key);
-            // 支持自定义 Base URL（兼容 OpenAI 兼容的 API）
             if let Some(base_url) = &config.llm.openai.base_url {
                 provider = provider.with_base_url(base_url.clone());
                 info!("✅ 使用 OpenAI Provider (自定义 URL: {})", base_url);
@@ -344,7 +309,6 @@ async fn main() -> Result<()> {
                     String::new()
                 });
             let mut provider = QwenCodeProvider::new(api_key);
-            // 支持自定义 Base URL
             if let Some(base_url) = &config.llm.qwencode.base_url {
                 provider = provider.with_base_url(base_url.clone());
                 info!("✅ 使用 QwenCode Provider (自定义 URL: {})", base_url);
@@ -392,39 +356,40 @@ async fn main() -> Result<()> {
     );
     info!("✅ ChannelProcessor 初始化完成");
     
+    // ==================== 初始化 TokenManager ====================
+    
+    // 获取第一个启用的账号配置
+    let (first_account_name, first_account_config) = config.feishu.accounts
+        .iter()
+        .find(|(_, cfg)| cfg.enabled)
+        .map(|(name, cfg)| (name.clone(), cfg.clone()))
+        .ok_or_else(|| anyhow::anyhow!("没有启用的飞书账号"))?;
+    
+    // 创建 TokenManager 配置
+    let token_manager_config = TokenManagerConfig {
+        app_id: first_account_config.app_id.clone(),
+        app_secret: first_account_config.app_secret.clone(),
+        token_type: TokenType::TenantAccessToken,
+        refresh_margin_secs: 300,     // 提前 5 分钟刷新
+        check_interval_secs: 60,      // 每 60 秒检查一次
+        max_refresh_failures: 5,
+        retry_interval_secs: 30,
+    };
+    
+    // 创建 TokenManager
+    let token_manager = Arc::new(TokenManager::new(token_manager_config));
+    
+    // 初始化 Token（首次获取）
+    token_manager.initialize().await?;
+    info!("✅ TokenManager 初始化完成");
+    
+    // 启动自动刷新任务
+    token_manager.start_auto_refresh().await;
+    info!("✅ Token 自动刷新任务已启动");
+    
     // ==================== 飞书连接管理 ====================
     
-    // 检查并刷新过期的token
-    for (account_name, account_config) in &config.feishu.accounts {
-        if !account_config.enabled {
-            info!("账号 {} 已禁用，跳过", account_name);
-            continue;
-        }
-
-        // 检查token是否过期或即将过期（提前5分钟刷新）
-        let need_refresh = account_config.access_token.is_none() 
-            || account_config.token_expires_at.map_or(true, |exp| {
-                let now = Utc::now().timestamp();
-                exp - now < 300 // 5分钟内过期
-            });
-
-        if need_refresh {
-            info!("账号 {} 的token已过期或即将过期，尝试刷新...", account_name);
-            
-            match fetch_access_token(&account_config.app_id, &account_config.app_secret).await {
-                Ok((token, expires_in)) => {
-                    info!("✅ 成功刷新账号 {} 的access_token，有效期 {} 秒", account_name, expires_in);
-                }
-                Err(e) => {
-                    error!("❌ 刷新账号 {} 的token失败: {}", account_name, e);
-                }
-            }
-        } else {
-            info!("账号 {} 的token仍然有效", account_name);
-        }
-    }
-
-    // 创建 WebSocket 管理器
+    // 创建 WebSocket 管理器配置
     let ws_config = newclaw::feishu_websocket::WebSocketConfig {
         base_url: "https://open.feishu.cn/open-apis".to_string(),
         app_id: String::new(),
@@ -448,11 +413,10 @@ async fn main() -> Result<()> {
             continue;
         }
         
-        // 创建该账号的处理器
+        // 创建该账号的处理器（使用共享的 TokenManager）
         let handler = Arc::new(FeishuProcessorHandler::new(
             processor.clone(),
-            account_config.app_id.clone(),
-            account_config.app_secret.clone(),
+            token_manager.clone(),
         ));
         
         let manager = Arc::new(newclaw::feishu_websocket::FeishuWebSocketManager::new(
@@ -496,6 +460,9 @@ async fn main() -> Result<()> {
                 info!("收到 SIGINT 信号，正在关闭服务...");
             }
         }
+        
+        // 停止 Token 自动刷新
+        token_manager.stop_auto_refresh().await;
     }
 
     info!("👋 NewClaw Feishu WebSocket 长连接服务已停止");
@@ -508,7 +475,6 @@ fn load_config() -> Result<newclaw::config::Config> {
     let config_path = std::env::var("FEISHU_CONNECT_CONFIG")
         .or_else(|_| std::env::var("NEWCLAW_CONFIG"))
         .unwrap_or_else(|_| {
-            // 尝试多个路径
             let paths = [
                 DEFAULT_CONFIG_PATH,
                 "./feishu-connect.toml",
@@ -521,42 +487,10 @@ fn load_config() -> Result<newclaw::config::Config> {
                 }
             }
             
-            // 默认返回第一个路径（即使不存在，后续会报错）
             DEFAULT_CONFIG_PATH.to_string()
         });
 
     let config = newclaw::config::Config::from_file(&config_path)?;
     info!("已加载配置: {}", config_path);
     Ok(config)
-}
-
-/// 获取飞书 access_token
-async fn fetch_access_token(app_id: &str, app_secret: &str) -> Result<(String, u32)> {
-    let client = reqwest::Client::new();
-    let url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal";
-    
-    let response = client
-        .post(url)
-        .header("Content-Type", "application/json")
-        .json(&json!({
-            "app_id": app_id,
-            "app_secret": app_secret,
-        }))
-        .send()
-        .await?;
-    
-    let json: serde_json::Value = response.json().await?;
-    
-    if json["code"].as_i64() != Some(0) {
-        return Err(anyhow::anyhow!("Feishu API error: {:?}", json["msg"]));
-    }
-    
-    let token = json["tenant_access_token"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("No token in response"))?
-        .to_string();
-    
-    let expires_in = json["expire"].as_u64().unwrap_or(7200) as u32;
-    
-    Ok((token, expires_in))
 }
