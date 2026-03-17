@@ -11,7 +11,7 @@ use crate::tools::{
     // 执行工具
     ExecTool,
     // 其他工具
-    MemoryTool, ToolRegistry, BrowserTool, CanvasTool,
+    ToolRegistry, BrowserTool, CanvasTool,
     SessionsTool, SubagentsTool, NodesTool,
     FeishuDocTool, FeishuBitableTool, FeishuDriveTool, FeishuWikiTool, FeishuChatTool,
     TtsTool, PermissionTool, ChannelConfigTool,
@@ -77,15 +77,6 @@ pub async fn init_builtin_tools_with_permissions(
     registry.register(ExecTool::new()).await?;
     tool_count += 1;
 
-    // ==================== 记忆工具 ====================
-    
-    let memory_tool = MemoryTool::new(
-        data_dir.join("memory"),
-        openclaw_workspace,
-    );
-    registry.register(memory_tool).await?;
-    tool_count += 1;
-
     // ==================== 浏览器工具 ====================
     
     registry.register(BrowserTool::new()).await?;
@@ -144,7 +135,7 @@ pub async fn init_builtin_tools_with_permissions(
     }
 
     info!(
-        "✅ 内置工具初始化完成: {} 个工具 (files + web + exec + memory + browser + canvas + sessions + nodes + feishu + tts + permission)",
+        "✅ 内置工具初始化完成: {} 个工具 (files + web + exec + browser + canvas + sessions + nodes + feishu + tts + permission)",
         tool_count
     );
     

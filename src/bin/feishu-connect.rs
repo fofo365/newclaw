@@ -2,7 +2,7 @@
 //
 // 独立服务，用于接收飞书消息并调用 LLM 回复
 //
-// v0.7.0 - 集成 ChannelProcessor，支持记忆、权限、策略机制
+// v0.7.1 - 统一数据路径，移除冗余 MemoryTool，修复记忆系统
 //        - 集成 TokenManager，支持 Token 自动刷新
 //        - 会话历史持久化，重启不丢失
 
@@ -35,10 +35,10 @@ use newclaw::llm::OpenAIProvider;
 use newclaw::llm::{Message, MessageRole};
 
 /// 飞书连接服务默认配置文件路径
-const DEFAULT_CONFIG_PATH: &str = "/etc/newclaw/feishu-connect.toml";
+const DEFAULT_CONFIG_PATH: &str = "/etc/newclaw/config.toml";
 
-/// 飞书连接服务数据目录
-const DEFAULT_DATA_DIR: &str = "/var/lib/newclaw/feishu-connect";
+/// 飞书连接服务数据目录（与主程序共享）
+const DEFAULT_DATA_DIR: &str = "/var/lib/newclaw/data";
 
 /// 会话历史最大消息数（用户+助手消息总数）
 const MAX_HISTORY_LENGTH: usize = 20;
@@ -494,7 +494,7 @@ async fn main() -> Result<()> {
         .init();
 
     info!("🚀 NewClaw Feishu WebSocket 长连接服务启动...");
-    info!("📦 版本: 0.7.0 (集成 ChannelProcessor + TokenManager + 会话持久化)");
+    info!("📦 版本: 0.7.1 (统一数据路径 + 完整记忆系统)");
 
     // 加载配置（使用独立配置文件）
     let config = load_config()?;
@@ -754,26 +754,11 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// 加载配置（使用独立配置文件）
+/// 加载配置（与主程序共享配置）
 fn load_config() -> Result<newclaw::config::Config> {
-    // 优先级：环境变量 > 默认路径 > 当前目录
-    let config_path = std::env::var("FEISHU_CONNECT_CONFIG")
-        .or_else(|_| std::env::var("NEWCLAW_CONFIG"))
-        .unwrap_or_else(|_| {
-            let paths = [
-                DEFAULT_CONFIG_PATH,
-                "./feishu-connect.toml",
-                "./config.toml",
-            ];
-            
-            for path in &paths {
-                if std::path::Path::new(path).exists() {
-                    return path.to_string();
-                }
-            }
-            
-            DEFAULT_CONFIG_PATH.to_string()
-        });
+    // 优先级：环境变量 > 默认路径
+    let config_path = std::env::var("NEWCLAW_CONFIG")
+        .unwrap_or_else(|_| DEFAULT_CONFIG_PATH.to_string());
 
     let config = newclaw::config::Config::from_file(&config_path)?;
     info!("已加载配置: {}", config_path);
