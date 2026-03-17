@@ -1,446 +1,165 @@
-// NewClaw 飞书 WebSocket 长连接服务 - v0.7.0
+// NewClaw 飞书 WebSocket 长连接服务
 //
-// 独立服务，用于接收飞书消息并调用 LLM 回复，支持：
-// - 工具调用
-// - 记忆管理（多层隔离：用户/通道/Agent/命名空间）
-// - 策略管理（动态调整上下文策略）
-// - 上下文管理
+// 独立服务，用于接收飞书消息并调用 LLM 回复
+//
+// v0.7.0 - 集成 ChannelProcessor，支持记忆、权限、策略机制
 
 use anyhow::Result;
 use tracing::{info, error, warn};
 use std::sync::Arc;
+use chrono::Utc;
+use async_trait::async_trait;
 use serde_json::json;
 use tokio::sync::RwLock;
-use std::collections::HashMap;
+use std::path::PathBuf;
 
-use async_trait::async_trait;
 use newclaw::feishu_websocket::{
     EventHandler, FeishuEvent, WebSocketError, WebSocketResult,
-    MessageSender, ToolManager, ToolCallRequest, build_tools_system_prompt,
+    MessageSender,
 };
-use newclaw::channel::{ChannelProcessor, ProcessorConfig};
-use newclaw::tools::ToolRegistry;
-use newclaw::channel::ChannelPermission;
+use newclaw::channel::{
+    ChannelProcessor, ProcessorConfig, ChannelMessage, MessageContent,
+    ChannelMember, ChannelType, ChannelRole, ChannelPermission,
+};
 use newclaw::memory::{SQLiteMemoryStorage, StorageConfig};
 use newclaw::context::StrategyEngine;
-use newclaw::llm::{GlmProvider, GlmConfig, GlmRegion, GlmProviderType};
+use newclaw::tools::ToolRegistry;
+use newclaw::llm::QwenCodeProvider;
+use newclaw::llm::OpenAIProvider;
 
-/// 对话历史消息
-#[derive(Debug, Clone)]
-struct ChatMessage {
-    role: String,
-    content: String,
-}
-
-/// 智能 LLM 事件处理器 - v0.7.0
-/// 
-/// 集成：
-/// - 记忆管理（多层隔离）
-/// - 策略管理（动态调整）
-/// - 工具调用
-struct LLMEventHandler {
+/// 飞书消息处理器（集成 ChannelProcessor）
+struct FeishuProcessorHandler {
     /// 消息发送器
     sender: MessageSender,
-    /// GLM API Key
-    api_key: String,
-    /// GLM 模型
-    model: String,
-    /// 工具管理器
-    tool_manager: Arc<ToolManager>,
-    /// 通道处理器 - v0.7.0
-    processor: Arc<RwLock<ChannelProcessor>>,
-    /// 对话历史
-    conversation_history: Arc<RwLock<Vec<newclaw::llm::Message>>>,
+    /// ChannelProcessor
+    processor: Arc<ChannelProcessor>,
+    /// 应用 ID
+    app_id: String,
+    /// 应用密钥
+    app_secret: String,
 }
 
-impl LLMEventHandler {
-    async fn new(api_key: String, model: String) -> Self {
+impl FeishuProcessorHandler {
+    /// 创建新的处理器
+    fn new(
+        processor: Arc<ChannelProcessor>,
+        app_id: String,
+        app_secret: String,
+    ) -> Self {
         let sender = MessageSender::new("https://open.feishu.cn");
-        let tool_manager = Arc::new(ToolManager::new().await);
-        
-        // 创建工具注册表和权限管理
-        let tools = Arc::new(ToolRegistry::new());
-        let permissions = Arc::new(ChannelPermission::new("./data/feishu_permissions.json"));
-        
-        // 创建处理器配置
-        let config = ProcessorConfig {
-            enable_memory: true,
-            enable_strategy: true,
-            default_strategy: newclaw::context::StrategyType::Balanced,
-            max_context_tokens: 8000,
-            memory_search_limit: 5,
-            default_agent_id: "feishu-bot".to_string(),
-            default_namespace: "feishu".to_string(),
-        };
-        
-        // 创建记忆存储
-        let storage_config = StorageConfig {
-            db_path: std::path::PathBuf::from("data/feishu_memory.db"),
-            ..Default::default()
-        };
-        let memory = Arc::new(SQLiteMemoryStorage::new(storage_config).expect("Failed to create memory storage"));
-        
-        // 创建策略引擎
-        let strategy = Arc::new(RwLock::new(StrategyEngine::new().expect("Failed to create strategy engine")));
-        
-        // 创建 LLM Provider
-        let glm_config = GlmConfig {
-            region: GlmRegion::International,
-            provider_type: GlmProviderType::Glm,
-            model: model.clone(),
-            temperature: 0.7,
-            max_tokens: 4096,
-        };
-        let llm = Arc::new(GlmProvider::with_config(api_key.clone(), glm_config));
-        
-        // 创建通道处理器
-        let processor = ChannelProcessor::new(tools, permissions, config)
-            .with_memory(memory)
-            .with_strategy(strategy)
-            .with_llm(llm, model.clone())
-            .with_agent_id("feishu-bot")
-            .with_namespace("feishu");
-        
         Self {
             sender,
-            api_key,
-            model,
-            tool_manager,
-            processor: Arc::new(RwLock::new(processor)),
-            conversation_history: Arc::new(RwLock::new(Vec::new())),
+            processor,
+            app_id,
+            app_secret,
         }
-    }
-
-    /// 处理消息（使用 ChannelProcessor）
-    async fn process_message(
-        &self,
-        user_id: &str,
-        chat_id: &str,
-        content: &str,
-    ) -> Result<String> {
-        use newclaw::channel::{ChannelMessage, ChannelMember, ChannelType, ChannelRole, MessageContent};
-        use newclaw::llm::{Message, MessageRole};
-        
-        // 构建通道消息
-        let message = ChannelMessage {
-            message_id: format!("msg_{}", chrono::Utc::now().timestamp_millis()),
-            channel_type: ChannelType::Feishu,
-            sender: ChannelMember {
-                channel_type: ChannelType::Feishu,
-                member_id: user_id.to_string(),
-                display_name: None,
-                role: ChannelRole::User,
-            },
-            chat_id: chat_id.to_string(),
-            content: MessageContent::Text(content.to_string()),
-            timestamp: chrono::Utc::now().timestamp(),
-            reply_to: None,
-            metadata: serde_json::Map::new(),
-        };
-        
-        // 获取对话历史
-        let history = self.conversation_history.read().await.clone();
-        
-        // 使用处理器处理消息
-        let processor = self.processor.read().await;
-        let result = processor.process(&message, &history).await?;
-        
-        // 更新对话历史
-        {
-            let mut history = self.conversation_history.write().await;
-            history.push(Message {
-                role: MessageRole::User,
-                content: content.to_string(),
-                tool_calls: None,
-                tool_call_id: None,
-            });
-            history.push(Message {
-                role: MessageRole::Assistant,
-                content: result.content.clone(),
-                tool_calls: None,
-                tool_call_id: None,
-            });
-            
-            // 限制历史长度
-            if history.len() > 20 {
-                let start = history.len() - 20;
-                *history = history.split_off(start);
-            }
-        }
-        
-        info!(
-            "消息处理完成: 用户={}, 通道={}, 策略={:?}, 记忆={}, 工具={}, 延迟={}ms",
-            user_id,
-            result.scope.channel,
-            result.strategy,
-            result.memory_count,
-            result.tool_calls,
-            result.latency_ms
-        );
-        
-        Ok(result.content)
-    }
-
-    /// 调用 GLM 生成回复（支持工具调用）- 兼容旧逻辑
-    async fn call_llm(&self, prompt: &str) -> Result<String> {
-        let tools = self.tool_manager.get_all_tools().await;
-        let system_prompt = build_tools_system_prompt(&tools);
-
-        // 构建请求体
-        let mut messages = vec![
-            json!({"role": "system", "content": system_prompt}),
-            json!({"role": "user", "content": prompt}),
-        ];
-
-        let mut max_iterations = 5; // 最多5轮工具调用
-        let mut final_answer = String::new();
-
-        for iteration in 0..max_iterations {
-            info!("LLM 调用第 {} 轮", iteration + 1);
-
-            // 调用 LLM
-            let response = self.call_glm_api(&messages).await?;
-            let content = response["choices"][0]["message"]["content"]
-                .as_str()
-                .unwrap_or("")
-                .to_string();
-
-            info!("LLM 原始回复: {}", content);
-
-            // 检查是否包含工具调用
-            if let Some(tool_calls) = self.extract_tool_calls(&content) {
-                info!("检测到工具调用: {} 个", tool_calls.len());
-
-                // 执行所有工具调用
-                let mut tool_results = Vec::new();
-                for tool_call in &tool_calls {
-                    let result = self.tool_manager.execute_tool(tool_call).await;
-                    info!(
-                        "工具 {} 执行: {}",
-                        tool_call.name,
-                        if result.success { "成功" } else { "失败" }
-                    );
-
-                    tool_results.push(json!({
-                        "tool": tool_call.name,
-                        "success": result.success,
-                        "output": result.output,
-                        "error": result.error,
-                    }));
-                }
-
-                // 将工具调用和结果添加到对话历史
-                messages.push(json!({
-                    "role": "assistant",
-                    "content": content,
-                }));
-
-                // 添加工具结果作为用户消息
-                messages.push(json!({
-                    "role": "user",
-                    "content": format!("工具执行结果: {}", serde_json::to_string(&tool_results)?),
-                }));
-            } else {
-                // 没有工具调用，提取最终答案
-                final_answer = self.extract_final_answer(&content);
-                break;
-            }
-        }
-
-        if final_answer.is_empty() {
-            final_answer = "抱歉，我无法生成有效的回复。".to_string();
-        }
-
-        Ok(final_answer)
-    }
-
-    /// 提取工具调用
-    fn extract_tool_calls(&self, content: &str) -> Option<Vec<ToolCallRequest>> {
-        // 简单的 JSON 提取逻辑
-        if !content.contains("tool_calls") {
-            return None;
-        }
-
-        // 尝试解析 JSON
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(content) {
-            if let Some(calls) = json.get("tool_calls").and_then(|v| v.as_array()) {
-                let tool_calls: Vec<ToolCallRequest> = calls
-                    .iter()
-                    .filter_map(|call| {
-                        let args: HashMap<String, String> = call
-                            .get("arguments")
-                            .and_then(|v| serde_json::from_value(v.clone()).ok())
-                            .unwrap_or_default();
-                        
-                        Some(ToolCallRequest {
-                            name: call.get("name")?.as_str()?.to_string(),
-                            arguments: args,
-                        })
-                    })
-                    .collect();
-                if !tool_calls.is_empty() {
-                    return Some(tool_calls);
-                }
-            }
-        }
-
-        // 尝试从文本中提取
-        let mut tool_calls = Vec::new();
-        for line in content.lines() {
-            if line.starts_with("tool:") || line.starts_with("工具:") {
-                let parts: Vec<&str> = line.splitn(2, ':').collect();
-                if parts.len() == 2 {
-                    tool_calls.push(ToolCallRequest {
-                        name: parts[1].trim().to_string(),
-                        arguments: HashMap::new(),
-                    });
-                }
-            }
-        }
-
-        if tool_calls.is_empty() {
-            None
-        } else {
-            Some(tool_calls)
-        }
-    }
-
-    /// 提取最终答案
-    fn extract_final_answer(&self, content: &str) -> String {
-        // 尝试解析 JSON
-        if let Ok(json) = serde_json::from_str::<serde_json::Value>(content) {
-            if let Some(answer) = json.get("answer").and_then(|v| v.as_str()) {
-                return answer.to_string();
-            }
-            if let Some(response) = json.get("response").and_then(|v| v.as_str()) {
-                return response.to_string();
-            }
-        }
-
-        // 尝试提取 answer: 或 答案: 后面的内容
-        for line in content.lines() {
-            if line.starts_with("answer:") || line.starts_with("答案:") {
-                let parts: Vec<&str> = line.splitn(2, ':').collect();
-                if parts.len() == 2 {
-                    return parts[1].trim().to_string();
-                }
-            }
-        }
-
-        // 如果没有特殊标记，返回整个内容
-        content.to_string()
-    }
-
-    /// 调用 GLM API
-    async fn call_glm_api(&self, messages: &[serde_json::Value]) -> Result<serde_json::Value> {
-        let client = reqwest::Client::new();
-
-        let url = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
-
-        let response = client
-            .post(url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&json!({
-                "model": self.model,
-                "messages": messages,
-                "temperature": 0.7,
-                "max_tokens": 4096,
-            }))
-            .send()
-            .await?;
-
-        let status = response.status();
-        let text = response.text().await?;
-
-        if !status.is_success() {
-            error!("GLM API 错误: {} - {}", status, text);
-            return Err(anyhow::anyhow!("GLM API error: {} - {}", status, text));
-        }
-
-        let json: serde_json::Value = serde_json::from_str(&text)?;
-        Ok(json)
     }
 }
 
 #[async_trait]
-impl EventHandler for LLMEventHandler {
+impl EventHandler for FeishuProcessorHandler {
     async fn handle(&self, event: FeishuEvent) -> WebSocketResult<()> {
-        match event {
-            FeishuEvent::MessageReceived {
-                app_id,
-                open_id,
-                chat_id,
-                user_id,
-                content,
-                message_id,
-                create_time,
-            } => {
-                info!(
-                    "收到消息: app_id={}, open_id={}, chat_id={}, content={}",
-                    app_id, open_id, chat_id, content
-                );
-
-                // 使用新的 ChannelProcessor 处理消息
-                match self.process_message(&open_id, &chat_id, &content).await {
-                    Ok(response) => {
-                        // 发送回复
-                        if let Err(e) = self
-                            .sender
-                            .send_simple_text(&chat_id, &response)
-                            .await
-                        {
-                            error!("发送回复失败: {}", e);
-                        } else {
-                            info!("回复已发送: {}", response);
-                        }
-                    }
-                    Err(e) => {
-                        error!("处理消息失败: {}", e);
-                        // 发送错误提示
-                        let error_msg = format!("处理消息时发生错误: {}", e);
-                        if let Err(e) = self
-                            .sender
-                            .send_simple_text(&chat_id, &error_msg)
-                            .await
-                        {
-                            error!("发送错误提示失败: {}", e);
-                        }
-                    }
+        match &event {
+            FeishuEvent::MessageReceived { open_id, chat_id, content, .. } => {
+                info!("收到消息 - 用户: {}, 群: {}", open_id, chat_id);
+                
+                // 解析消息内容
+                let text = if let Ok(json) = serde_json::from_str::<serde_json::Value>(content) {
+                    json.get("text")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or(content)
+                        .to_string()
+                } else {
+                    content.clone()
+                };
+                
+                if text.trim().is_empty() {
+                    return Ok(());
                 }
+                
+                info!("处理消息: {}", text);
+                
+                // 构建 ChannelMessage
+                let message = ChannelMessage {
+                    message_id: format!("feishu_{}", chrono::Utc::now().timestamp_millis()),
+                    channel_type: ChannelType::Feishu,
+                    sender: ChannelMember {
+                        channel_type: ChannelType::Feishu,
+                        member_id: open_id.clone(),
+                        display_name: None,
+                        role: ChannelRole::User,
+                    },
+                    chat_id: chat_id.clone(),
+                    content: MessageContent::Text(text.clone()),
+                    timestamp: chrono::Utc::now().timestamp(),
+                    reply_to: None,
+                    metadata: serde_json::Map::new(),
+                };
+                
+                // 使用 ChannelProcessor 处理消息
+                let processor = self.processor.clone();
+                let chat_id = chat_id.clone();
+                let app_id = self.app_id.clone();
+                let app_secret = self.app_secret.clone();
+                
+                tokio::spawn(async move {
+                    match processor.process(&message, &[]).await {
+                        Ok(result) => {
+                            info!("处理完成: {} (记忆: {}条, 工具调用: {}次)", 
+                                result.content.chars().take(50).collect::<String>(),
+                                result.memory_count,
+                                result.tool_calls
+                            );
+                            
+                            // 发送回复
+                            let token = match fetch_access_token(&app_id, &app_secret).await {
+                                Ok((t, _)) => t,
+                                Err(e) => {
+                                    error!("获取 access_token 失败: {}", e);
+                                    return;
+                                }
+                            };
+                            
+                            let sender = MessageSender::new("https://open.feishu.cn").with_token(&token);
+                            match sender.send_simple_text(&chat_id, &result.content).await {
+                                Ok(msg_id) => info!("消息已发送: {}", msg_id),
+                                Err(e) => error!("发送消息失败: {:?}", e),
+                            }
+                        }
+                        Err(e) => {
+                            error!("处理消息失败: {}", e);
+                            
+                            // 发送错误提示
+                            let token = match fetch_access_token(&app_id, &app_secret).await {
+                                Ok((t, _)) => t,
+                                Err(_) => return,
+                            };
+                            
+                            let sender = MessageSender::new("https://open.feishu.cn").with_token(&token);
+                            let _ = sender.send_simple_text(&chat_id, "抱歉，处理您的消息时遇到问题。").await;
+                        }
+                    }
+                });
             }
-            FeishuEvent::MessageRead { chat_id, read_time } => {
-                info!("消息已读: chat_id={}, read_time={}", chat_id, read_time);
-            }
-            FeishuEvent::UserTyping { chat_id, open_id } => {
-                info!("用户正在输入: chat_id={}, open_id={}", chat_id, open_id);
-            }
-            FeishuEvent::BotAdded { app_id, chat_id } => {
-                info!("机器人被添加: app_id={}, chat_id={}", app_id, chat_id);
-            }
-            FeishuEvent::BotRemoved { app_id, chat_id } => {
-                info!("机器人被移除: app_id={}, chat_id={}", app_id, chat_id);
-            }
-            FeishuEvent::Error { code, message } => {
-                error!("错误事件: code={}, message={}", code, message);
+            _ => {
+                info!("忽略事件: {:?}", event);
             }
         }
-
         Ok(())
     }
-
+    
     async fn on_connect(&self, app_id: &str) -> WebSocketResult<()> {
-        info!("✅ 飞书 WebSocket 连接成功: {}", app_id);
+        info!("✅ 连接成功: {}", app_id);
         Ok(())
     }
-
+    
     async fn on_disconnect(&self, app_id: &str) -> WebSocketResult<()> {
-        warn!("⚠️ 飞书 WebSocket 断开连接: {}", app_id);
+        warn!("⚠️ 连接断开: {}", app_id);
         Ok(())
     }
-
+    
     async fn on_error(&self, app_id: &str, error: &WebSocketError) -> WebSocketResult<()> {
-        error!("❌ 飞书 WebSocket 错误: {} - {:?}", app_id, error);
+        error!("❌ 错误 [{}]: {:?}", app_id, error);
         Ok(())
     }
 }
@@ -448,30 +167,150 @@ impl EventHandler for LLMEventHandler {
 #[tokio::main]
 async fn main() -> Result<()> {
     // 初始化日志
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            std::env::var("RUST_LOG").unwrap_or_else(|_| "newclaw=info".to_string())
+        )
+        .init();
 
-    info!("🚀 NewClaw Feishu WebSocket 长连接服务 v0.7.0 启动中...");
+    info!("🚀 NewClaw Feishu WebSocket 长连接服务启动...");
+    info!("📦 版本: 0.7.0 (集成 ChannelProcessor)");
 
     // 加载配置
     let config = load_config()?;
 
-    // 获取 API Key
-    let api_key = std::env::var("GLM_API_KEY")
-        .or_else(|_| {
-            config
-                .llm
-                .glm
-                .api_key
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("GLM_API_KEY not set"))
-        })
-        .expect("GLM API Key is required");
+    // 检查飞书配置
+    if config.feishu.accounts.is_empty() {
+        warn!("未配置飞书账号，服务将退出");
+        warn!("请在 /etc/newclaw/config.toml 中配置 [feishu.accounts.*]");
+        return Ok(());
+    }
 
+    info!("找到 {} 个飞书账号配置", config.feishu.accounts.len());
+
+    // ==================== 初始化 ChannelProcessor ====================
+    
+    // 1. 创建工具注册表
+    let tools = Arc::new(ToolRegistry::new());
+    info!("✅ 工具注册表初始化完成");
+    
+    // 2. 创建权限管理器
+    let permissions = Arc::new(ChannelPermission::new("./data/permissions.json"));
+    info!("✅ 权限管理器初始化完成");
+    
+    // 3. 创建记忆存储
+    let memory_config = StorageConfig {
+        db_path: PathBuf::from("./data/memory.db"),
+        ..Default::default()
+    };
+    let memory = Arc::new(SQLiteMemoryStorage::new(memory_config)?);
+    info!("✅ 记忆存储初始化完成: ./data/memory.db");
+    
+    // 4. 创建策略引擎
+    let strategy = Arc::new(RwLock::new(StrategyEngine::new()?));
+    info!("✅ 策略引擎初始化完成");
+    
+    // 5. 创建 LLM Provider（根据配置选择）
+    let llm_provider: Arc<dyn newclaw::llm::LLMProviderV3> = match config.llm.provider.as_str() {
+        "openai" => {
+            let api_key = config.llm.openai.api_key.clone()
+                .or_else(|| std::env::var("OPENAI_API_KEY").ok())
+                .unwrap_or_else(|| {
+                    warn!("未配置 OpenAI API Key");
+                    String::new()
+                });
+            let mut provider = OpenAIProvider::new(api_key);
+            // 支持自定义 Base URL（兼容 OpenAI 兼容的 API）
+            if let Some(base_url) = &config.llm.openai.base_url {
+                provider = provider.with_base_url(base_url.clone());
+                info!("✅ 使用 OpenAI Provider (自定义 URL: {})", base_url);
+            } else {
+                info!("✅ 使用 OpenAI Provider");
+            }
+            Arc::new(provider)
+        }
+        "qwencode" => {
+            let api_key = config.llm.qwencode.api_key.clone()
+                .or_else(|| std::env::var("QWENCODE_API_KEY").ok())
+                .unwrap_or_else(|| {
+                    warn!("未配置 QwenCode API Key");
+                    String::new()
+                });
+            info!("✅ 使用 QwenCode Provider");
+            Arc::new(QwenCodeProvider::new(api_key))
+        }
+        "glm" | "zhipu" => {
+            let api_key = config.llm.glm.api_key.clone()
+                .or_else(|| std::env::var("GLM_API_KEY").ok())
+                .unwrap_or_else(|| {
+                    warn!("未配置 GLM API Key");
+                    String::new()
+                });
+            info!("✅ 使用 GLM Provider");
+            Arc::new(newclaw::llm::GlmProvider::new(api_key))
+        }
+        _ => {
+            warn!("未知的 LLM Provider: {}, 使用 GLM", config.llm.provider);
+            let api_key = config.llm.glm.api_key.clone().unwrap_or_default();
+            Arc::new(newclaw::llm::GlmProvider::new(api_key))
+        }
+    };
+    
     let model = config.llm.model.clone();
+    info!("✅ LLM Provider 初始化完成，模型: {}", model);
+    
+    // 6. 创建 ChannelProcessor 配置
+    let processor_config = ProcessorConfig {
+        enable_memory: true,
+        enable_strategy: true,
+        memory_search_limit: 5,
+        max_context_tokens: 4096,
+        default_strategy: newclaw::context::StrategyType::Balanced,
+        ..Default::default()
+    };
+    
+    // 7. 创建 ChannelProcessor
+    let processor = Arc::new(
+        ChannelProcessor::new(tools.clone(), permissions.clone(), processor_config)
+            .with_memory(memory.clone())
+            .with_strategy(strategy.clone())
+            .with_llm(llm_provider, model)
+    );
+    info!("✅ ChannelProcessor 初始化完成");
+    
+    // ==================== 飞书连接管理 ====================
+    
+    // 检查并刷新过期的token
+    for (account_name, account_config) in &config.feishu.accounts {
+        if !account_config.enabled {
+            info!("账号 {} 已禁用，跳过", account_name);
+            continue;
+        }
 
-    info!("使用模型: {}", model);
+        // 检查token是否过期或即将过期（提前5分钟刷新）
+        let need_refresh = account_config.access_token.is_none() 
+            || account_config.token_expires_at.map_or(true, |exp| {
+                let now = Utc::now().timestamp();
+                exp - now < 300 // 5分钟内过期
+            });
 
-    // 创建 WebSocket 配置
+        if need_refresh {
+            info!("账号 {} 的token已过期或即将过期，尝试刷新...", account_name);
+            
+            match fetch_access_token(&account_config.app_id, &account_config.app_secret).await {
+                Ok((token, expires_in)) => {
+                    info!("✅ 成功刷新账号 {} 的access_token，有效期 {} 秒", account_name, expires_in);
+                }
+                Err(e) => {
+                    error!("❌ 刷新账号 {} 的token失败: {}", account_name, e);
+                }
+            }
+        } else {
+            info!("账号 {} 的token仍然有效", account_name);
+        }
+    }
+
+    // 创建 WebSocket 管理器
     let ws_config = newclaw::feishu_websocket::WebSocketConfig {
         base_url: "https://open.feishu.cn/open-apis".to_string(),
         app_id: String::new(),
@@ -487,28 +326,38 @@ async fn main() -> Result<()> {
         log_level: newclaw::feishu_websocket::LogLevel::Info,
     };
 
-    let event_handler = Arc::new(LLMEventHandler::new(api_key, model).await);
-    let manager = Arc::new(newclaw::feishu_websocket::FeishuWebSocketManager::new(
-        ws_config,
-        event_handler,
-    ));
-
-    // 启动管理器
-    manager.start().await?;
-
-    // 为每个账号启动连接
+    // 为每个账号创建独立的处理器和连接
+    let mut managers = Vec::new();
+    
     for (account_name, account_config) in &config.feishu.accounts {
         if !account_config.enabled {
-            info!("账号 {} 已禁用，跳过", account_name);
             continue;
         }
+        
+        // 创建该账号的处理器
+        let handler = Arc::new(FeishuProcessorHandler::new(
+            processor.clone(),
+            account_config.app_id.clone(),
+            account_config.app_secret.clone(),
+        ));
+        
+        let manager = Arc::new(newclaw::feishu_websocket::FeishuWebSocketManager::new(
+            ws_config.clone(),
+            handler,
+        ));
+        
+        managers.push((account_name.clone(), manager, account_config.clone()));
+    }
 
+    // 启动所有管理器
+    for (account_name, manager, _) in &managers {
+        manager.start().await?;
         info!("启动账号 {} 的飞书连接...", account_name);
+    }
 
-        if let Err(e) = manager
-            .connect(&account_config.app_id, &account_config.app_secret)
-            .await
-        {
+    // 为每个账号建立 WebSocket 连接
+    for (account_name, manager, account_config) in &managers {
+        if let Err(e) = manager.connect(&account_config.app_id, &account_config.app_secret).await {
             error!("启动账号 {} 连接失败: {}", account_name, e);
         } else {
             info!("账号 {} 连接成功", account_name);
@@ -547,4 +396,35 @@ fn load_config() -> Result<newclaw::config::Config> {
     let config = newclaw::config::Config::from_file(&config_path)?;
     info!("已加载配置: {}", config_path);
     Ok(config)
+}
+
+/// 获取飞书 access_token
+async fn fetch_access_token(app_id: &str, app_secret: &str) -> Result<(String, u32)> {
+    let client = reqwest::Client::new();
+    let url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal";
+    
+    let response = client
+        .post(url)
+        .header("Content-Type", "application/json")
+        .json(&json!({
+            "app_id": app_id,
+            "app_secret": app_secret,
+        }))
+        .send()
+        .await?;
+    
+    let json: serde_json::Value = response.json().await?;
+    
+    if json["code"].as_i64() != Some(0) {
+        return Err(anyhow::anyhow!("Feishu API error: {:?}", json["msg"]));
+    }
+    
+    let token = json["tenant_access_token"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("No token in response"))?
+        .to_string();
+    
+    let expires_in = json["expire"].as_u64().unwrap_or(7200) as u32;
+    
+    Ok((token, expires_in))
 }
