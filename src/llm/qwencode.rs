@@ -54,15 +54,41 @@ impl QwenCodeProvider {
     /// 转换消息格式
     fn convert_request(&self, req: ChatRequest) -> serde_json::Value {
         let messages: Vec<serde_json::Value> = req.messages.into_iter().map(|m| {
-            serde_json::json!({
-                "role": match m.role {
-                    MessageRole::System => "system",
-                    MessageRole::User => "user",
-                    MessageRole::Assistant => "assistant",
-                    MessageRole::Tool => "tool",
-                },
-                "content": m.content,
-            })
+            let mut msg = serde_json::Map::new();
+            
+            // 基本字段
+            msg.insert("role".to_string(), serde_json::json!(match m.role {
+                MessageRole::System => "system",
+                MessageRole::User => "user",
+                MessageRole::Assistant => "assistant",
+                MessageRole::Tool => "tool",
+            }));
+            
+            msg.insert("content".to_string(), serde_json::json!(m.content));
+            
+            // Assistant 消息的 tool_calls
+            if let Some(ref tool_calls) = m.tool_calls {
+                if !tool_calls.is_empty() {
+                    let tc_json: Vec<serde_json::Value> = tool_calls.iter().map(|tc| {
+                        serde_json::json!({
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.name,
+                                "arguments": tc.arguments,
+                            }
+                        })
+                    }).collect();
+                    msg.insert("tool_calls".to_string(), serde_json::json!(tc_json));
+                }
+            }
+            
+            // Tool 消息的 tool_call_id
+            if let Some(ref tool_call_id) = m.tool_call_id {
+                msg.insert("tool_call_id".to_string(), serde_json::json!(tool_call_id));
+            }
+            
+            serde_json::Value::Object(msg)
         }).collect();
         
         // 基础请求 - 总是包含这三个字段

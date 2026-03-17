@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::provider::{ChatRequest, ChatResponse, LLMError, LLMProviderV3, Message, MessageRole, TokenUsage};
+use super::provider::{ChatRequest, ChatResponse, LLMError, LLMProviderV3, Message, MessageRole, TokenUsage, ToolCall};
 
 /// GLM 区域枚举
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -275,14 +275,30 @@ impl LLMProviderV3 for GlmProvider {
         
         // 转换消息格式
         let messages: Vec<GlmMessage> = req.messages.into_iter()
-            .map(|m| GlmMessage {
-                role: match m.role {
-                    MessageRole::System => "system".to_string(),
-                    MessageRole::User => "user".to_string(),
-                    MessageRole::Assistant => "assistant".to_string(),
-                    MessageRole::Tool => "tool".to_string(),
-                },
-                content: m.content,
+            .map(|m| {
+                // 转换 tool_calls
+                let tool_calls = m.tool_calls.as_ref().map(|tcs| {
+                    tcs.iter().map(|tc| GlmToolCall {
+                        id: tc.id.clone(),
+                        tool_type: "function".to_string(),
+                        function: GlmFunctionCall {
+                            name: tc.name.clone(),
+                            arguments: tc.arguments.clone(),
+                        },
+                    }).collect()
+                });
+                
+                GlmMessage {
+                    role: match m.role {
+                        MessageRole::System => "system".to_string(),
+                        MessageRole::User => "user".to_string(),
+                        MessageRole::Assistant => "assistant".to_string(),
+                        MessageRole::Tool => "tool".to_string(),
+                    },
+                    content: m.content,
+                    tool_calls,
+                    tool_call_id: m.tool_call_id,
+                }
             })
             .collect();
         
@@ -291,6 +307,16 @@ impl LLMProviderV3 for GlmProvider {
             messages,
             temperature: req.temperature as f64,
             max_tokens: req.max_tokens,
+            tools: req.tools.map(|tools| {
+                tools.into_iter().map(|t| GlmToolDefinition {
+                    tool_type: "function".to_string(),
+                    function: GlmFunctionDefinition {
+                        name: t.name,
+                        description: t.description,
+                        parameters: t.parameters,
+                    },
+                }).collect()
+            }),
         };
         
         let url = format!("{}/chat/completions", self.base_url);
@@ -314,17 +340,27 @@ impl LLMProviderV3 for GlmProvider {
             .await
             .map_err(|e| LLMError::SerializationError(e.to_string()))?;
         
-        let content = chat_response.choices
-            .into_iter()
-            .next()
-            .map(|c| c.message.content)
-            .unwrap_or_default();
+        let choice = chat_response.choices.into_iter().next();
+        let content = choice.as_ref().map(|c| c.message.content.clone()).unwrap_or_default();
+        
+        // 转换 tool_calls
+        let tool_calls = choice.and_then(|c| {
+            if c.message.tool_calls.is_empty() {
+                None
+            } else {
+                Some(c.message.tool_calls.into_iter().map(|tc| ToolCall {
+                    id: tc.id,
+                    name: tc.function.name,
+                    arguments: tc.function.arguments,
+                }).collect())
+            }
+        });
         
         Ok(ChatResponse {
             message: Message {
                 role: MessageRole::Assistant,
                 content,
-                tool_calls: None,
+                tool_calls,
                 tool_call_id: None,
             },
             usage: TokenUsage {
@@ -374,12 +410,46 @@ struct GlmChatRequest {
     temperature: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_tokens: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<GlmToolDefinition>>,
+}
+
+#[derive(Debug, Serialize)]
+struct GlmToolDefinition {
+    #[serde(rename = "type")]
+    tool_type: String,
+    function: GlmFunctionDefinition,
+}
+
+#[derive(Debug, Serialize)]
+struct GlmFunctionDefinition {
+    name: String,
+    description: String,
+    parameters: serde_json::Value,
 }
 
 #[derive(Debug, Serialize)]
 struct GlmMessage {
     role: String,
     content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<GlmToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct GlmToolCall {
+    id: String,
+    #[serde(rename = "type")]
+    tool_type: String,
+    function: GlmFunctionCall,
+}
+
+#[derive(Debug, Serialize)]
+struct GlmFunctionCall {
+    name: String,
+    arguments: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -398,6 +468,22 @@ struct GlmChoice {
 #[derive(Debug, Deserialize)]
 struct GlmResponseMessage {
     content: String,
+    #[serde(default)]
+    tool_calls: Vec<GlmResponseToolCall>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GlmResponseToolCall {
+    id: String,
+    #[serde(rename = "type", default)]
+    tool_type: String,
+    function: GlmResponseFunctionCall,
+}
+
+#[derive(Debug, Deserialize)]
+struct GlmResponseFunctionCall {
+    name: String,
+    arguments: String,
 }
 
 #[derive(Debug, Deserialize)]
