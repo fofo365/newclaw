@@ -27,6 +27,12 @@ use newclaw::tools::ToolRegistry;
 use newclaw::llm::QwenCodeProvider;
 use newclaw::llm::OpenAIProvider;
 
+/// 飞书连接服务默认配置文件路径
+const DEFAULT_CONFIG_PATH: &str = "/etc/newclaw/feishu-connect.toml";
+
+/// 飞书连接服务数据目录
+const DEFAULT_DATA_DIR: &str = "/var/lib/newclaw/feishu-connect";
+
 /// 飞书消息处理器（集成 ChannelProcessor）
 struct FeishuProcessorHandler {
     /// 消息发送器
@@ -174,15 +180,25 @@ async fn main() -> Result<()> {
         .init();
 
     info!("🚀 NewClaw Feishu WebSocket 长连接服务启动...");
-    info!("📦 版本: 0.7.0 (集成 ChannelProcessor)");
+    info!("📦 版本: 0.7.0 (集成 ChannelProcessor + 完整工具集)");
 
-    // 加载配置
+    // 加载配置（使用独立配置文件）
     let config = load_config()?;
+
+    // 数据目录
+    let data_dir = PathBuf::from(
+        std::env::var("NEWCLAW_DATA_DIR")
+            .unwrap_or_else(|_| DEFAULT_DATA_DIR.to_string())
+    );
+    
+    // 确保数据目录存在
+    std::fs::create_dir_all(&data_dir)?;
+    info!("数据目录: {}", data_dir.display());
 
     // 检查飞书配置
     if config.feishu.accounts.is_empty() {
         warn!("未配置飞书账号，服务将退出");
-        warn!("请在 /etc/newclaw/config.toml 中配置 [feishu.accounts.*]");
+        warn!("请在 {} 中配置 [feishu.accounts.*]", DEFAULT_CONFIG_PATH);
         return Ok(());
     }
 
@@ -190,21 +206,33 @@ async fn main() -> Result<()> {
 
     // ==================== 初始化 ChannelProcessor ====================
     
-    // 1. 创建工具注册表
+    // 1. 创建工具注册表并注册所有内置工具
     let tools = Arc::new(ToolRegistry::new());
-    info!("✅ 工具注册表初始化完成");
+    
+    // 初始化内置工具
+    if let Err(e) = newclaw::tools::init_builtin_tools_with_permissions(
+        &tools,
+        data_dir.clone(),
+        data_dir.clone(),
+        None, // 权限管理器稍后创建
+    ).await {
+        warn!("部分工具初始化失败: {}", e);
+    }
+    
+    let tool_count = tools.list_tools().await.len();
+    info!("✅ 工具注册表初始化完成: {} 个工具", tool_count);
     
     // 2. 创建权限管理器
-    let permissions = Arc::new(ChannelPermission::new("./data/permissions.json"));
+    let permissions = Arc::new(ChannelPermission::new(&data_dir.join("permissions.json").display().to_string()));
     info!("✅ 权限管理器初始化完成");
     
     // 3. 创建记忆存储
     let memory_config = StorageConfig {
-        db_path: PathBuf::from("./data/memory.db"),
+        db_path: data_dir.join("memory.db"),
         ..Default::default()
     };
     let memory = Arc::new(SQLiteMemoryStorage::new(memory_config)?);
-    info!("✅ 记忆存储初始化完成: ./data/memory.db");
+    info!("✅ 记忆存储初始化完成: {}", data_dir.join("memory.db").display());
     
     // 4. 创建策略引擎
     let strategy = Arc::new(RwLock::new(StrategyEngine::new()?));
@@ -388,10 +416,28 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-/// 加载配置
+/// 加载配置（使用独立配置文件）
 fn load_config() -> Result<newclaw::config::Config> {
-    let config_path = std::env::var("NEWCLAW_CONFIG")
-        .unwrap_or_else(|_| "/etc/newclaw/config.toml".to_string());
+    // 优先级：环境变量 > 默认路径 > 当前目录
+    let config_path = std::env::var("FEISHU_CONNECT_CONFIG")
+        .or_else(|_| std::env::var("NEWCLAW_CONFIG"))
+        .unwrap_or_else(|_| {
+            // 尝试多个路径
+            let paths = [
+                DEFAULT_CONFIG_PATH,
+                "./feishu-connect.toml",
+                "./config.toml",
+            ];
+            
+            for path in &paths {
+                if std::path::Path::new(path).exists() {
+                    return path.to_string();
+                }
+            }
+            
+            // 默认返回第一个路径（即使不存在，后续会报错）
+            DEFAULT_CONFIG_PATH.to_string()
+        });
 
     let config = newclaw::config::Config::from_file(&config_path)?;
     info!("已加载配置: {}", config_path);
