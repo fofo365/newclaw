@@ -17,13 +17,51 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::config::Config;
-use crate::llm::{LLMProviderV3, create_glm_provider};
+use crate::llm::{LLMProviderV3, create_glm_provider, OpenAIProvider, QwenCodeProvider, TokenUsage};
 use crate::smart_controller::{SmartController, SmartControllerConfig};
 
-/// 安全创建 GLM Provider（不抛出错误）
-fn create_glm_provider_safe(api_key: String, model: &str) -> anyhow::Result<Box<dyn LLMProviderV3>> {
-    let provider = create_glm_provider(api_key, model);
-    Ok(Box::new(provider))
+/// 安全创建 LLM Provider（不抛出错误）
+fn create_llm_provider(config: &Config) -> anyhow::Result<Box<dyn LLMProviderV3>> {
+    let provider_type = config.llm.provider.to_lowercase();
+    let model = config.get_model();
+    
+    match provider_type.as_str() {
+        "openai" => {
+            let api_key = config.llm.openai.api_key.clone()
+                .ok_or_else(|| anyhow::anyhow!("OpenAI API key not found"))?;
+            let base_url = config.llm.openai.base_url.clone()
+                .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+            
+            // 如果base_url是coding.dashscope，使用QwenCode Provider
+            if base_url.contains("coding.dashscope") {
+                let provider = QwenCodeProvider::new(api_key)
+                    .with_base_url(base_url)
+                    .with_default_model(model);
+                Ok(Box::new(provider))
+            } else {
+                // 标准 OpenAI Provider
+                let provider = OpenAIProvider::new(api_key)
+                    .with_base_url(base_url)
+                    .with_default_model(model);
+                Ok(Box::new(provider))
+            }
+        }
+        "qwencode" => {
+            let api_key = config.llm.qwencode.api_key.clone()
+                .or_else(|| config.llm.openai.api_key.clone())
+                .ok_or_else(|| anyhow::anyhow!("QwenCode API key not found"))?;
+            
+            let provider = QwenCodeProvider::new(api_key)
+                .with_default_model(model);
+            Ok(Box::new(provider))
+        }
+        _ => {
+            // 默认使用 GLM Provider
+            let api_key = config.get_api_key()?;
+            let provider = create_glm_provider(api_key, &model);
+            Ok(Box::new(provider))
+        }
+    }
 }
 
 /// Gateway 状态
@@ -36,26 +74,17 @@ pub struct GatewayState {
 impl GatewayState {
     pub async fn from_config(config: Config) -> anyhow::Result<Self> {
         // 尝试创建 LLM Provider，失败也不影响服务启动
-        let llm_provider = match config.get_api_key() {
-            Ok(api_key) => {
-                let model_name = config.get_model();
-                match create_glm_provider_safe(api_key, &model_name) {
-                    Ok(provider) => {
-                        tracing::info!(
-                            "✅ LLM Provider initialized: {} (model: {})",
-                            config.llm.provider,
-                            model_name
-                        );
-                        Some(Arc::new(provider))
-                    }
-                    Err(e) => {
-                        tracing::warn!("⚠️  Failed to initialize LLM Provider: {}", e);
-                        None
-                    }
-                }
+        let llm_provider = match create_llm_provider(&config) {
+            Ok(provider) => {
+                tracing::info!(
+                    "✅ LLM Provider initialized: {} (model: {})",
+                    config.llm.provider,
+                    config.get_model()
+                );
+                Some(Arc::new(provider))
             }
             Err(e) => {
-                tracing::warn!("⚠️  LLM Provider not configured: {}", e);
+                tracing::warn!("⚠️  Failed to initialize LLM Provider: {}", e);
                 tracing::warn!("   Chat API will return error until API Key is configured.");
                 None
             }
@@ -167,16 +196,111 @@ async fn readiness_check(
 
 async fn chat(
     State(state): State<Arc<GatewayState>>,
-) -> Result<&'static str, (StatusCode, &'static str)> {
+    Json(req): Json<ChatApiRequest>,
+) -> Result<Json<ChatApiResponse>, (StatusCode, Json<ErrorResponse>)> {
     // 检查 LLM Provider 是否配置
-    if state.llm_provider.is_none() {
-        return Err((
-            StatusCode::SERVICE_UNAVAILABLE,
-            "LLM Provider not configured. Please set GLM_API_KEY environment variable or configure in newclaw.toml"
-        ));
-    }
+    let provider = match &state.llm_provider {
+        Some(p) => p,
+        None => {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(ErrorResponse {
+                    error: "LLM Provider not configured".to_string(),
+                    message: "Please configure API key in newclaw.toml".to_string(),
+                }),
+            ))
+        }
+    };
     
-    Ok("Chat endpoint will be implemented soon")
+    // 转换消息格式
+    let messages = req.messages.into_iter().map(|m| crate::llm::Message {
+        role: match m.role.as_str() {
+            "system" => crate::llm::MessageRole::System,
+            "user" => crate::llm::MessageRole::User,
+            "assistant" => crate::llm::MessageRole::Assistant,
+            "tool" => crate::llm::MessageRole::Tool,
+            _ => crate::llm::MessageRole::User,
+        },
+        content: m.content,
+        tool_calls: None,
+        tool_call_id: None,
+    }).collect();
+    
+    let chat_req = crate::llm::ChatRequest {
+        messages,
+        model: req.model,
+        temperature: req.temperature.unwrap_or(0.7),
+        max_tokens: req.max_tokens,
+        top_p: req.top_p,
+        stop: req.stop,
+        tools: None,
+    };
+    
+    // 调用 LLM Provider
+    match provider.chat(chat_req).await {
+        Ok(resp) => {
+            Ok(Json(ChatApiResponse {
+                message: ChatApiMessage {
+                    role: "assistant".to_string(),
+                    content: resp.message.content,
+                    tool_calls: None,
+                },
+                usage: TokenUsage {
+                    prompt_tokens: resp.usage.prompt_tokens,
+                    completion_tokens: resp.usage.completion_tokens,
+                    total_tokens: resp.usage.total_tokens,
+                },
+                finish_reason: resp.finish_reason,
+                model: resp.model,
+            }))
+        }
+        Err(e) => {
+            tracing::error!("LLM API error: {:?}", e);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "LLM API error".to_string(),
+                    message: e.to_string(),
+                }),
+            ))
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatApiRequest {
+    model: String,
+    messages: Vec<ChatApiMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_tokens: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stop: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct ChatApiMessage {
+    role: String,
+    content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<serde_json::Value>>,
+}
+
+#[derive(Debug, Serialize)]
+struct ChatApiResponse {
+    message: ChatApiMessage,
+    usage: TokenUsage,
+    finish_reason: Option<String>,
+    model: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ErrorResponse {
+    error: String,
+    message: String,
 }
 
 #[derive(Debug, Serialize)]

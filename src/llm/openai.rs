@@ -49,26 +49,25 @@ impl OpenAIProvider {
     }
     
     /// 转换消息格式
-    fn convert_request(&self, req: ChatRequest) -> OpenAIRequest {
-        OpenAIRequest {
-            model: req.model.clone(),
-            messages: req.messages.into_iter().map(|m| OpenAIMessage {
-                role: match m.role {
-                    MessageRole::System => "system".to_string(),
-                    MessageRole::User => "user".to_string(),
-                    MessageRole::Assistant => "assistant".to_string(),
-                    MessageRole::Tool => "tool".to_string(),
+    fn convert_request(&self, req: ChatRequest) -> serde_json::Value {
+        let messages: Vec<serde_json::Value> = req.messages.into_iter().map(|m| {
+            serde_json::json!({
+                "role": match m.role {
+                    MessageRole::System => "system",
+                    MessageRole::User => "user",
+                    MessageRole::Assistant => "assistant",
+                    MessageRole::Tool => "tool",
                 },
-                content: m.content,
-                tool_calls: None, // 简化实现
-                tool_call_id: None,
-            }).collect(),
-            temperature: Some(req.temperature),
-            max_tokens: req.max_tokens,
-            top_p: req.top_p,
-            stop: req.stop,
-            tools: None, // 简化实现
-        }
+                "content": m.content,
+            })
+        }).collect();
+        
+        // 基本请求
+        serde_json::json!({
+            "model": req.model,
+            "messages": messages,
+            "temperature": req.temperature,
+        })
     }
     
     /// 转换响应格式
@@ -112,19 +111,23 @@ impl LLMProvider for OpenAIProvider {
     }
     
     async fn chat(&self, req: ChatRequest) -> Result<ChatResponse, LLMError> {
-        let openai_req = self.convert_request(req);
+        let openai_req_json = self.convert_request(req);
+        tracing::info!("Sending request to {}: {}", self.base_url, openai_req_json);
         
         let resp = self.client
             .post(format!("{}/chat/completions", self.base_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
-            .json(&openai_req)
+            .header("Accept", "application/json")
+            .header("User-Agent", "newclaw/0.7.0")
+            .json(&openai_req_json)
             .send()
             .await
             .map_err(|e| LLMError::NetworkError(e.to_string()))?;
         
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
+        tracing::info!("Response status: {}, body: {}", status, body);
         
         if !status.is_success() {
             if status.as_u16() == 401 {
@@ -201,6 +204,19 @@ struct OpenAIRequest {
     top_p: Option<f32>,
     stop: Option<Vec<String>>,
     tools: Option<Vec<OpenAITool>>,
+}
+
+// coding.dashscope 专用请求（带coding字段）
+#[derive(Debug, Serialize)]
+struct CodingDashScopeRequest {
+    model: String,
+    messages: Vec<OpenAIMessage>,
+    temperature: Option<f32>,
+    max_tokens: Option<usize>,
+    top_p: Option<f32>,
+    stop: Option<Vec<String>>,
+    tools: Option<Vec<OpenAITool>>,
+    coding: bool,
 }
 
 #[derive(Debug, Serialize)]

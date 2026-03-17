@@ -11,7 +11,7 @@
 use super::provider::{LLMProviderV3 as LLMProvider, ChatRequest, ChatResponse, Message, MessageRole, TokenUsage, LLMError, ToolDefinition, ToolCall};
 use async_trait::async_trait;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::pin::Pin;
 use futures::Stream;
 use std::time::Duration;
@@ -52,26 +52,31 @@ impl QwenCodeProvider {
     }
     
     /// 转换消息格式
-    fn convert_request(&self, req: ChatRequest) -> OpenAIRequest {
-        OpenAIRequest {
-            model: req.model.clone(),
-            messages: req.messages.into_iter().map(|m| OpenAIMessage {
-                role: match m.role {
-                    MessageRole::System => "system".to_string(),
-                    MessageRole::User => "user".to_string(),
-                    MessageRole::Assistant => "assistant".to_string(),
-                    MessageRole::Tool => "tool".to_string(),
+    fn convert_request(&self, req: ChatRequest) -> serde_json::Value {
+        let messages: Vec<serde_json::Value> = req.messages.into_iter().map(|m| {
+            serde_json::json!({
+                "role": match m.role {
+                    MessageRole::System => "system",
+                    MessageRole::User => "user",
+                    MessageRole::Assistant => "assistant",
+                    MessageRole::Tool => "tool",
                 },
-                content: m.content,
-                tool_calls: None, // 简化实现
-                tool_call_id: None,
-            }).collect(),
-            temperature: Some(req.temperature),
-            max_tokens: req.max_tokens,
-            top_p: req.top_p,
-            stop: req.stop,
-            tools: None, // 简化实现
+                "content": m.content,
+            })
+        }).collect();
+        
+        // 基础请求
+        let mut req_json = serde_json::json!({
+            "model": req.model,
+            "messages": messages,
+        });
+        
+        // 只在非None时添加temperature
+        if let Some(obj) = req_json.as_object_mut() {
+            obj.insert("temperature".to_string(), serde_json::json!(req.temperature));
         }
+        
+        req_json
     }
     
     /// 转换响应格式
@@ -115,19 +120,23 @@ impl LLMProvider for QwenCodeProvider {
     }
     
     async fn chat(&self, req: ChatRequest) -> Result<ChatResponse, LLMError> {
-        let openai_req = self.convert_request(req);
+        let req_json = self.convert_request(req);
+        tracing::info!("QwenCode Sending request to {}: {}", self.base_url, req_json);
         
         let resp = self.client
             .post(format!("{}/chat/completions", self.base_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
-            .json(&openai_req)
+            .header("Accept", "application/json")
+            .header("User-Agent", "newclaw/0.7.0")
+            .json(&req_json)
             .send()
             .await
             .map_err(|e| LLMError::NetworkError(e.to_string()))?;
         
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
+        tracing::info!("QwenCode Response status: {}, body: {}", status, body);
         
         if !status.is_success() {
             if status.as_u16() == 401 {
@@ -193,70 +202,8 @@ impl LLMProvider for QwenCodeProvider {
     }
 }
 
-// OpenAI API 类型定义（与 OpenAI provider 共享）
-// 注意：这里使用与 OpenAI provider 相同的类型定义
-
-#[derive(Debug, Serialize)]
-struct OpenAIRequest {
-    model: String,
-    messages: Vec<OpenAIMessage>,
-    temperature: Option<f32>,
-    max_tokens: Option<usize>,
-    top_p: Option<f32>,
-    stop: Option<Vec<String>>,
-    tools: Option<Vec<OpenAITool>>,
-}
-
-#[derive(Debug, Serialize)]
-struct OpenAIMessage {
-    role: String,
-    content: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tool_calls: Option<Vec<OpenAIToolCall>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tool_call_id: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct OpenAIToolCall {
-    id: String,
-    r#type: String,
-    function: OpenAIFunctionCall,
-}
-
-impl From<ToolCall> for OpenAIToolCall {
-    fn from(tc: ToolCall) -> Self {
-        Self {
-            id: tc.id,
-            r#type: "function".to_string(),
-            function: OpenAIFunctionCall {
-                name: tc.name,
-                arguments: tc.arguments,
-            },
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct OpenAIFunctionCall {
-    name: String,
-    arguments: String,
-}
-
-#[derive(Debug, Serialize)]
-struct OpenAITool {
-    r#type: String,
-    function: OpenAIFunction,
-}
-
-#[derive(Debug, Serialize)]
-struct OpenAIFunction {
-    name: String,
-    description: String,
-    parameters: serde_json::Value,
-}
+// OpenAI API 响应类型定义
+// 注意：请求使用 serde_json::json! 直接构造，避免 null 字段
 
 #[derive(Debug, Deserialize)]
 struct OpenAIResponse {
@@ -280,6 +227,20 @@ struct OpenAIResponseMessage {
     content: String,
     #[serde(default)]
     tool_calls: Vec<OpenAIToolCall>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIToolCall {
+    id: String,
+    #[serde(rename = "type")]
+    tool_type: String,
+    function: OpenAIFunctionCall,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIFunctionCall {
+    name: String,
+    arguments: String,
 }
 
 #[derive(Debug, Deserialize)]

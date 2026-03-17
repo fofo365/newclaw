@@ -17,7 +17,7 @@ use clap::Parser;
 use crate::config::Config;
 use crate::llm::{
     LLMProviderV3, OpenAIProvider, ClaudeProvider, GlmProvider, GlmConfig, GlmRegion, GlmProviderType,
-    Message, MessageRole, is_glm_alias
+    Message, MessageRole, is_glm_alias, QwenCodeProvider
 };
 use crate::tools::ToolRegistry;
 use crate::channel::{ChannelPermission, ChannelType, ChannelMember, ChannelRole, ChannelProcessor, ProcessorConfig};
@@ -344,6 +344,14 @@ fn create_llm_provider(config: &Config, api_key: &str) -> anyhow::Result<Arc<dyn
             p = p.with_default_model(config.get_model());
             Ok(Arc::new(p))
         }
+        "qwencode" => {
+            let mut p = crate::llm::QwenCodeProvider::new(api_key.to_string());
+            if let Some(base_url) = &config.llm.qwencode.base_url {
+                p = p.with_base_url(base_url.clone());
+            }
+            p = p.with_default_model(config.get_model());
+            Ok(Arc::new(p))
+        }
         "claude" => {
             let mut p = ClaudeProvider::new(api_key.to_string());
             if let Some(base_url) = &config.llm.claude.base_url {
@@ -506,6 +514,7 @@ fn print_providers() {
     println!("\n  OpenAI Compatible:");
     println!("    openai       - OpenAI GPT models");
     println!("    claude       - Anthropic Claude models");
+    println!("    qwencode     - QwenCode (coding.dashscope.aliyuncs.com)");
     println!("\n  GLM / Zhipu (Multi-Region):");
     println!("    glm          - GLM International (api.z.ai)");
     println!("    glm-global   - GLM International (alias)");
@@ -523,6 +532,8 @@ fn print_providers() {
     println!("    GLM_API_KEY     - GLM API key (format: id.secret)");
     println!("    GLM_REGION      - GLM region (china/international)");
     println!("    GLM_TYPE        - GLM type (glm/glmcode)");
+    println!("    OPENAI_API_KEY  - OpenAI API key");
+    println!("    QWENCODE_API_KEY - QwenCode API key");
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
 }
 

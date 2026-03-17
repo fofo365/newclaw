@@ -264,8 +264,15 @@ async fn main() -> Result<()> {
                     warn!("未配置 QwenCode API Key");
                     String::new()
                 });
-            info!("✅ 使用 QwenCode Provider");
-            Arc::new(QwenCodeProvider::new(api_key))
+            let mut provider = QwenCodeProvider::new(api_key);
+            // 支持自定义 Base URL
+            if let Some(base_url) = &config.llm.qwencode.base_url {
+                provider = provider.with_base_url(base_url.clone());
+                info!("✅ 使用 QwenCode Provider (自定义 URL: {})", base_url);
+            } else {
+                info!("✅ 使用 QwenCode Provider");
+            }
+            Arc::new(provider)
         }
         "glm" | "zhipu" => {
             let api_key = config.llm.glm.api_key.clone()
