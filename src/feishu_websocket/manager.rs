@@ -301,6 +301,12 @@ impl FeishuWebSocketManager {
                                                 .and_then(|c| c.as_str())
                                                 .unwrap_or("{}");
                                             
+                                            // 提取 message_id
+                                            let message_id = event_data.get("message")
+                                                .and_then(|m| m.get("message_id"))
+                                                .and_then(|id| id.as_str())
+                                                .unwrap_or("");
+                                            
                                             // 解析 content 中的 text
                                             let text = if let Ok(content_obj) = serde_json::from_str::<serde_json::Value>(content_json) {
                                                 content_obj.get("text")
@@ -320,7 +326,7 @@ impl FeishuWebSocketManager {
                                                 chat_id: chat_id.to_string(),
                                                 user_id: open_id.to_string(),
                                                 content: text,
-                                                message_id: String::new(),
+                                                message_id: message_id.to_string(),
                                                 create_time: chrono::Utc::now().timestamp(),
                                             };
                                             
