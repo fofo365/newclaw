@@ -4,7 +4,7 @@ use crate::tools::{Tool, ToolMetadata, Value};
 use crate::tools::feishu::{FeishuClient, FeishuConfig};
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::json;
+use serde_json::{json, Value as JsonValue};
 use std::sync::Arc;
 
 /// 飞书文档工具（增强版）

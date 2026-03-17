@@ -5,6 +5,7 @@
 use anyhow::Result;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value, Value as JsonValue};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -223,9 +224,12 @@ impl FeishuClient {
         // 将 Markdown 转换为文档块
         let blocks = self.markdown_to_blocks(markdown)?;
         
+        let mode_clone = mode.clone();
+        let mode_str = mode_clone.unwrap_or_else(|| "0".to_string());
+        
         let body = serde_json::json!({
             "blocks": blocks,
-            "index_type": mode.unwrap_or_else(|| "0".to_string())
+            "index_type": mode_str
         });
 
         let response = self.http_client
@@ -236,12 +240,13 @@ impl FeishuClient {
             .await?;
 
         if !response.status().is_success() {
+            let status = response.status();
             let error_text = response.text().await?;
             return Ok(json!({
                 "status": "error",
                 "action": "update",
                 "doc_token": doc_token,
-                "error": format!("{}: {}", response.status(), error_text),
+                "error": format!("{}: {}", status, error_text),
                 "message": "Failed to update document"
             }));
         }
