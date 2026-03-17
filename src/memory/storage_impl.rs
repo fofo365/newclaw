@@ -239,6 +239,41 @@ impl MemoryStorage for SQLiteMemoryStorage {
         // 构建隔离条件
         let (where_clause, params) = scope.to_where_clause();
         
+        // 清理查询字符串，移除 FTS5 特殊字符
+        // FTS5 特殊字符: = < > ( ) { } [ ] " ' * ^ ~ : ? \ / - ! | &
+        let cleaned_query = query
+            .replace('=', " ")
+            .replace('<', " ")
+            .replace('>', " ")
+            .replace('(', " ")
+            .replace(')', " ")
+            .replace('{', " ")
+            .replace('}', " ")
+            .replace('[', " ")
+            .replace(']', " ")
+            .replace('"', " ")
+            .replace('\'', " ")
+            .replace('*', " ")
+            .replace('^', " ")
+            .replace('~', " ")
+            .replace(':', " ")
+            .replace('?', " ")
+            .replace('\\', " ")
+            .replace('/', " ")
+            .replace('!', " ")
+            .replace('|', " ")
+            .replace('&', " ")
+            .replace('-', " ")
+            .replace('+', " ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        
+        // 如果清理后查询为空，返回空结果
+        if cleaned_query.is_empty() {
+            return Ok(Vec::new());
+        }
+        
         // 使用 FTS5 搜索
         let sql = format!(
             r#"
@@ -254,7 +289,7 @@ impl MemoryStorage for SQLiteMemoryStorage {
         
         // 构建参数
         let mut sql_params: Vec<Box<dyn rusqlite::ToSql>> = params;
-        sql_params.push(Box::new(query.to_string()));
+        sql_params.push(Box::new(cleaned_query));
         sql_params.push(Box::new(limit as i32));
         
         // 转换参数引用
