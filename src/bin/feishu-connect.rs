@@ -5,7 +5,7 @@
 // v0.7.0 - 集成 ChannelProcessor，支持记忆、权限、策略机制
 
 use anyhow::Result;
-use tracing::{info, error, warn};
+use tracing::{info, error, warn, debug};
 use std::sync::Arc;
 use chrono::Utc;
 use async_trait::async_trait;
@@ -26,12 +26,17 @@ use newclaw::context::StrategyEngine;
 use newclaw::tools::ToolRegistry;
 use newclaw::llm::QwenCodeProvider;
 use newclaw::llm::OpenAIProvider;
+use newclaw::llm::{Message, MessageRole};
+use std::collections::HashMap;
 
 /// 飞书连接服务默认配置文件路径
 const DEFAULT_CONFIG_PATH: &str = "/etc/newclaw/feishu-connect.toml";
 
 /// 飞书连接服务数据目录
 const DEFAULT_DATA_DIR: &str = "/var/lib/newclaw/feishu-connect";
+
+/// 会话历史最大消息数（用户+助手消息总数）
+const MAX_HISTORY_LENGTH: usize = 20;
 
 /// 飞书消息处理器（集成 ChannelProcessor）
 struct FeishuProcessorHandler {
@@ -43,6 +48,8 @@ struct FeishuProcessorHandler {
     app_id: String,
     /// 应用密钥
     app_secret: String,
+    /// 会话历史（按 chat_id 隔离）
+    session_history: Arc<RwLock<HashMap<String, Vec<Message>>>>,
 }
 
 impl FeishuProcessorHandler {
@@ -58,7 +65,42 @@ impl FeishuProcessorHandler {
             processor,
             app_id,
             app_secret,
+            session_history: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+    
+    /// 获取或创建会话历史
+    async fn get_history(&self, chat_id: &str) -> Vec<Message> {
+        let history = self.session_history.read().await;
+        history.get(chat_id).cloned().unwrap_or_default()
+    }
+    
+    /// 更新会话历史
+    async fn update_history(&self, chat_id: &str, user_msg: String, assistant_msg: String) {
+        let mut history = self.session_history.write().await;
+        let session = history.entry(chat_id.to_string()).or_insert_with(Vec::new);
+        
+        // 添加用户消息和助手响应
+        session.push(Message {
+            role: MessageRole::User,
+            content: user_msg,
+            tool_calls: None,
+            tool_call_id: None,
+        });
+        session.push(Message {
+            role: MessageRole::Assistant,
+            content: assistant_msg,
+            tool_calls: None,
+            tool_call_id: None,
+        });
+        
+        // 限制历史长度
+        if session.len() > MAX_HISTORY_LENGTH {
+            let start = session.len() - MAX_HISTORY_LENGTH;
+            *session = session.split_off(start);
+        }
+        
+        debug!("会话历史更新: chat_id={}, 长度={}", chat_id, session.len());
     }
 }
 
@@ -107,15 +149,52 @@ impl EventHandler for FeishuProcessorHandler {
                 let chat_id = chat_id.clone();
                 let app_id = self.app_id.clone();
                 let app_secret = self.app_secret.clone();
+                let session_history = self.session_history.clone();
+                let user_text = text.clone();
                 
                 tokio::spawn(async move {
-                    match processor.process(&message, &[]).await {
+                    // 获取会话历史
+                    let history = {
+                        let histories = session_history.read().await;
+                        histories.get(&chat_id).cloned().unwrap_or_default()
+                    };
+                    
+                    info!("会话历史: {} 条消息", history.len());
+                    
+                    match processor.process(&message, &history).await {
                         Ok(result) => {
                             info!("处理完成: {} (记忆: {}条, 工具调用: {}次)", 
                                 result.content.chars().take(50).collect::<String>(),
                                 result.memory_count,
                                 result.tool_calls
                             );
+                            
+                            // 更新会话历史
+                            {
+                                let mut histories = session_history.write().await;
+                                let session = histories.entry(chat_id.clone()).or_insert_with(Vec::new);
+                                
+                                session.push(Message {
+                                    role: MessageRole::User,
+                                    content: user_text.clone(),
+                                    tool_calls: None,
+                                    tool_call_id: None,
+                                });
+                                session.push(Message {
+                                    role: MessageRole::Assistant,
+                                    content: result.content.clone(),
+                                    tool_calls: None,
+                                    tool_call_id: None,
+                                });
+                                
+                                // 限制历史长度
+                                if session.len() > MAX_HISTORY_LENGTH {
+                                    let start = session.len() - MAX_HISTORY_LENGTH;
+                                    *session = session.split_off(start);
+                                }
+                                
+                                info!("会话历史更新: chat_id={}, 长度={}", chat_id, session.len());
+                            }
                             
                             // 发送回复
                             let token = match fetch_access_token(&app_id, &app_secret).await {
