@@ -63,7 +63,7 @@ impl Tool for ExecTool {
     fn metadata(&self) -> ToolMetadata {
         ToolMetadata {
             name: "exec".to_string(),
-            description: "执行 shell 命令".to_string(),
+            description: "Execute shell commands. Use for local server status: 'uptime' (runtime), 'df -h' (disk), 'free -m' (memory), 'ps aux' (processes), 'systemctl status <service>' (services). Supports background execution with yieldMs.".to_string(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {

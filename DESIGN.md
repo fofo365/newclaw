@@ -1,5 +1,11 @@
 # 多层路由架构设计（Multi-Layer Router Architecture）
 
+> **状态 (2026-03-17 v0.7.1)**：本文档描述的是规划中的架构。部分功能已实现，部分仍在开发中。
+> 
+> **已实现**：Router 基础结构、Isolation、Sandbox、Policy（部分）
+> 
+> **规划中**：RouterManager、RouterConnector、完整 PolicyEngine、AuditLog
+
 ## 1. 核心概念
 
 ### 1.1 路由（Router）

@@ -226,7 +226,7 @@ impl Tool for NodesTool {
     fn metadata(&self) -> ToolMetadata {
         ToolMetadata {
             name: "nodes".to_string(),
-            description: "Discover and control paired nodes (status/describe/notify/camera/screen/location/notifications/run).".to_string(),
+            description: "Manage PAIRED REMOTE nodes/devices (phones, desktops, IoT). NOT for local server status. Use 'exec' tool with commands like 'uptime', 'df -h', 'free -m' for local server. Actions: status/describe/notify/camera/screen/location/run.".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
