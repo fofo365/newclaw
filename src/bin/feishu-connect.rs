@@ -43,6 +43,9 @@ const DEFAULT_DATA_DIR: &str = "/var/lib/newclaw/feishu-connect";
 /// 会话历史最大消息数（用户+助手消息总数）
 const MAX_HISTORY_LENGTH: usize = 20;
 
+/// 已处理消息去重缓存大小
+const MAX_PROCESSED_MESSAGES: usize = 1000;
+
 /// 会话历史存储（持久化）
 pub struct SessionHistoryStore {
     conn: Arc<Mutex<Connection>>,
@@ -198,6 +201,8 @@ struct FeishuProcessorHandler {
     session_history: Arc<RwLock<HashMap<String, Vec<Message>>>>,
     /// 会话历史存储（持久化）
     session_store: Arc<SessionHistoryStore>,
+    /// 已处理消息 ID（去重）
+    processed_messages: Arc<RwLock<Vec<String>>>,
 }
 
 impl FeishuProcessorHandler {
@@ -215,6 +220,7 @@ impl FeishuProcessorHandler {
             token_manager,
             session_history: Arc::new(RwLock::new(session_history)),
             session_store,
+            processed_messages: Arc::new(RwLock::new(Vec::new())),
         }
     }
 }
@@ -223,8 +229,23 @@ impl FeishuProcessorHandler {
 impl EventHandler for FeishuProcessorHandler {
     async fn handle(&self, event: FeishuEvent) -> WebSocketResult<()> {
         match &event {
-            FeishuEvent::MessageReceived { open_id, chat_id, content, .. } => {
-                info!("收到消息 - 用户: {}, 群: {}", open_id, chat_id);
+            FeishuEvent::MessageReceived { open_id, chat_id, content, message_id, .. } => {
+                info!("收到消息 - 用户: {}, 群: {}, message_id: {}", open_id, chat_id, message_id);
+                
+                // 消息去重检查（必须在 spawn 之前检查和标记）
+                {
+                    let mut processed = self.processed_messages.write().await;
+                    if processed.contains(message_id) {
+                        info!("消息已处理过，跳过: {}", message_id);
+                        return Ok(());
+                    }
+                    // 立即标记为已处理
+                    processed.push(message_id.clone());
+                    if processed.len() > MAX_PROCESSED_MESSAGES {
+                        let start = processed.len() - MAX_PROCESSED_MESSAGES;
+                        *processed = processed.split_off(start);
+                    }
+                }
                 
                 // 解析消息内容
                 let text = if let Ok(json) = serde_json::from_str::<serde_json::Value>(content) {
@@ -243,8 +264,8 @@ impl EventHandler for FeishuProcessorHandler {
                 info!("处理消息: {}", text);
                 
                 // 构建 ChannelMessage
-                let message = ChannelMessage {
-                    message_id: format!("feishu_{}", chrono::Utc::now().timestamp_millis()),
+                let channel_message = ChannelMessage {
+                    message_id: message_id.clone(),
                     channel_type: ChannelType::Feishu,
                     sender: ChannelMember {
                         channel_type: ChannelType::Feishu,
@@ -276,7 +297,7 @@ impl EventHandler for FeishuProcessorHandler {
                     
                     info!("会话历史: {} 条消息", history.len());
                     
-                    match processor.process(&message, &history).await {
+                    match processor.process(&channel_message, &history).await {
                         Ok(result) => {
                             info!("处理完成: {} (记忆: {}条, 工具调用: {}次)", 
                                 result.content.chars().take(50).collect::<String>(),
