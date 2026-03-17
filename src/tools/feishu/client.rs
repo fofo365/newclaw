@@ -268,12 +268,17 @@ impl FeishuClient {
         // 将 Markdown 转换为文档块
         let blocks = self.markdown_to_blocks(markdown)?;
         
-        let mode_clone = mode.clone();
-        let mode_str = mode_clone.unwrap_or_else(|| "0".to_string());
+        // 根据模式确定 index_type
+        // 0: 覆盖整个文档, 1: 追加
+        let index_type = match mode.as_deref() {
+            Some(m) if m == "append" => "1",
+            Some(_) => "0",
+            None => "0",
+        };
         
         let body = serde_json::json!({
             "blocks": blocks,
-            "index_type": mode_str
+            "index_type": index_type
         });
 
         let response = self.http_client
@@ -300,6 +305,7 @@ impl FeishuClient {
             "action": "update",
             "doc_token": doc_token,
             "mode": mode.unwrap_or_else(|| "overwrite".to_string()),
+            "index_type": index_type,
             "message": "Document updated successfully"
         }))
     }
