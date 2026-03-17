@@ -184,10 +184,10 @@ impl FeishuClient {
 
         let content: serde_json::Value = response.json().await?;
         
-        // 返回 Markdown 内容
-        if let Some(markdown) = content["content"].as_str() {
+        // 飞书 API 返回结构: { "code": 0, "data": { "content": "..." } }
+        if let Some(markdown) = content["data"]["content"].as_str() {
             Ok(markdown.to_string())
-        } else if let Some(blocks) = content["blocks"].as_array() {
+        } else if let Some(blocks) = content["data"]["blocks"].as_array() {
             // 如果返回的是 blocks，转换为 Markdown
             Ok(self.blocks_to_markdown(blocks)?)
         } else {

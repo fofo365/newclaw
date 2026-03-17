@@ -296,7 +296,7 @@ impl EventHandler for FeishuProcessorHandler {
     async fn handle(&self, event: FeishuEvent) -> WebSocketResult<()> {
         match &event {
             FeishuEvent::MessageReceived { open_id, chat_id, content, message_id, .. } => {
-                info!("收到消息 - 用户: {}, 群: {}, message_id: {}", open_id, chat_id, message_id);
+                debug!("收到消息 - 用户: {}, 群: {}, message_id: {}", open_id, chat_id, message_id);
                 
                 // 消息去重检查（使用持久化存储）
                 match self.processed_store.is_processed(message_id).await {
@@ -330,7 +330,7 @@ impl EventHandler for FeishuProcessorHandler {
                     return Ok(());
                 }
                 
-                info!("处理消息: {}", text);
+                debug!("处理消息: {}", text);
                 
                 // 构建 ChannelMessage
                 let channel_message = ChannelMessage {
