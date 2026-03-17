@@ -260,10 +260,50 @@ impl FeishuClient {
         // 先创建文档
         let doc_id = self.create_doc(title, folder_token).await?;
         
-        // 然后更新文档内容
-        self.update_doc(&doc_id, markdown, None).await?;
-        
-        Ok(doc_id)
+        // 如果有内容，添加到文档
+        if !markdown.is_empty() {
+            // 等待文档初始化完成
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            
+            // 创建初始块
+            let initial_block = vec![
+                serde_json::json!({
+                    "block_type": 2,
+                    "text_run": {
+                        "content": title
+                    }
+                })
+            ];
+            
+            let token = self.get_access_token().await?;
+            let url = format!("{}/docx/v1/documents/{}/blocks/doc", self.config.base_url, doc_id);
+            
+            let response = self.http_client
+                .patch(&url)
+                .header("Authorization", format!("Bearer {}", token))
+                .json(&serde_json::json!({
+                    "blocks": initial_block,
+                    "index_type": 0
+                }))
+                .send()
+                .await?;
+            
+            if !response.status().is_success() {
+                tracing::warn!("创建初始块失败: {}", response.status());
+            }
+            
+            // 然后更新文档内容
+            match self.update_doc(&doc_id, markdown, None).await {
+                Ok(_) => Ok(doc_id),
+                Err(e) => {
+                    tracing::warn!("创建文档后更新内容失败: {}", e);
+                    // 即使更新失败，也返回文档 ID（因为文档已创建）
+                    Ok(doc_id)
+                }
+            }
+        } else {
+            Ok(doc_id)
+        }
     }
 
     /// 更新文档（基本模式）
