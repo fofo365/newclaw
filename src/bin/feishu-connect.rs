@@ -4,6 +4,7 @@
 //
 // v0.7.0 - 集成 ChannelProcessor，支持记忆、权限、策略机制
 //        - 集成 TokenManager，支持 Token 自动刷新
+//        - 会话历史持久化，重启不丢失
 
 use anyhow::Result;
 use tracing::{info, error, warn, debug};
@@ -12,8 +13,10 @@ use chrono::Utc;
 use async_trait::async_trait;
 use serde_json::json;
 use tokio::sync::RwLock;
+use tokio::sync::Mutex;
 use std::path::PathBuf;
 use std::collections::HashMap;
+use rusqlite::{Connection, params};
 
 use newclaw::feishu_websocket::{
     EventHandler, FeishuEvent, WebSocketError, WebSocketResult,
@@ -40,6 +43,149 @@ const DEFAULT_DATA_DIR: &str = "/var/lib/newclaw/feishu-connect";
 /// 会话历史最大消息数（用户+助手消息总数）
 const MAX_HISTORY_LENGTH: usize = 20;
 
+/// 会话历史存储（持久化）
+pub struct SessionHistoryStore {
+    conn: Arc<Mutex<Connection>>,
+}
+
+impl SessionHistoryStore {
+    /// 创建新的会话历史存储
+    pub fn new(db_path: &PathBuf) -> Result<Self> {
+        // 确保父目录存在
+        if let Some(parent) = db_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        
+        let conn = Connection::open(db_path)?;
+        
+        // 创建表
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS session_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            
+            CREATE INDEX IF NOT EXISTS idx_session_chat_id ON session_history(chat_id);
+            CREATE INDEX IF NOT EXISTS idx_session_created ON session_history(created_at);
+            "#,
+        )?;
+        
+        info!("会话历史存储初始化完成: {}", db_path.display());
+        
+        Ok(Self {
+            conn: Arc::new(Mutex::new(conn)),
+        })
+    }
+    
+    /// 加载所有会话历史
+    pub async fn load_all(&self) -> Result<HashMap<String, Vec<Message>>> {
+        let conn = self.conn.lock().await;
+        let mut map: HashMap<String, Vec<Message>> = HashMap::new();
+        
+        let mut stmt = conn.prepare(
+            "SELECT chat_id, role, content FROM session_history ORDER BY created_at ASC"
+        )?;
+        
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        
+        for row in rows {
+            let (chat_id, role, content) = row?;
+            let message = Message {
+                role: match role.as_str() {
+                    "user" => MessageRole::User,
+                    "assistant" => MessageRole::Assistant,
+                    "system" => MessageRole::System,
+                    _ => MessageRole::User,
+                },
+                content,
+                tool_calls: None,
+                tool_call_id: None,
+            };
+            
+            map.entry(chat_id).or_insert_with(Vec::new).push(message);
+        }
+        
+        // 限制每个会话的历史长度
+        for (_, messages) in map.iter_mut() {
+            if messages.len() > MAX_HISTORY_LENGTH {
+                let start = messages.len() - MAX_HISTORY_LENGTH;
+                *messages = messages.split_off(start);
+            }
+        }
+        
+        let total_sessions = map.len();
+        let total_messages: usize = map.values().map(|v| v.len()).sum();
+        info!("加载会话历史: {} 个会话, {} 条消息", total_sessions, total_messages);
+        
+        Ok(map)
+    }
+    
+    /// 添加消息到会话历史
+    pub async fn add_message(&self, chat_id: &str, message: &Message) -> Result<()> {
+        let conn = self.conn.lock().await;
+        let role = match message.role {
+            MessageRole::User => "user",
+            MessageRole::Assistant => "assistant",
+            MessageRole::System => "system",
+            MessageRole::Tool => "tool",
+        };
+        
+        conn.execute(
+            "INSERT INTO session_history (chat_id, role, content, created_at) VALUES (?, ?, ?, ?)",
+            params![
+                chat_id,
+                role,
+                message.content,
+                Utc::now().to_rfc3339()
+            ],
+        )?;
+        
+        Ok(())
+    }
+    
+    /// 清理旧的会话历史（保留最近 N 条）
+    pub async fn cleanup(&self, chat_id: &str, keep_count: usize) -> Result<()> {
+        let conn = self.conn.lock().await;
+        
+        // 获取该会话的总消息数
+        let count: usize = conn.query_row(
+            "SELECT COUNT(*) FROM session_history WHERE chat_id = ?",
+            params![chat_id],
+            |row| row.get(0),
+        )?;
+        
+        if count > keep_count {
+            // 删除最旧的消息
+            conn.execute(
+                r#"
+                DELETE FROM session_history 
+                WHERE chat_id = ? AND id IN (
+                    SELECT id FROM session_history 
+                    WHERE chat_id = ? 
+                    ORDER BY created_at ASC 
+                    LIMIT ?
+                )
+                "#,
+                params![chat_id, chat_id, count - keep_count],
+            )?;
+            
+            debug!("清理会话历史: chat_id={}, 删除 {} 条旧消息", chat_id, count - keep_count);
+        }
+        
+        Ok(())
+    }
+}
+
 /// 飞书消息处理器（集成 ChannelProcessor + TokenManager）
 struct FeishuProcessorHandler {
     /// 消息发送器
@@ -48,8 +194,10 @@ struct FeishuProcessorHandler {
     processor: Arc<ChannelProcessor>,
     /// Token 管理器
     token_manager: Arc<TokenManager>,
-    /// 会话历史（按 chat_id 隔离）
+    /// 会话历史（按 chat_id 隔离，内存缓存）
     session_history: Arc<RwLock<HashMap<String, Vec<Message>>>>,
+    /// 会话历史存储（持久化）
+    session_store: Arc<SessionHistoryStore>,
 }
 
 impl FeishuProcessorHandler {
@@ -57,13 +205,16 @@ impl FeishuProcessorHandler {
     fn new(
         processor: Arc<ChannelProcessor>,
         token_manager: Arc<TokenManager>,
+        session_history: HashMap<String, Vec<Message>>,
+        session_store: Arc<SessionHistoryStore>,
     ) -> Self {
         let sender = MessageSender::new("https://open.feishu.cn");
         Self {
             sender,
             processor,
             token_manager,
-            session_history: Arc::new(RwLock::new(HashMap::new())),
+            session_history: Arc::new(RwLock::new(session_history)),
+            session_store,
         }
     }
 }
@@ -113,6 +264,7 @@ impl EventHandler for FeishuProcessorHandler {
                 let chat_id = chat_id.clone();
                 let token_manager = self.token_manager.clone();
                 let session_history = self.session_history.clone();
+                let session_store = self.session_store.clone();
                 let user_text = text.clone();
                 
                 tokio::spawn(async move {
@@ -132,23 +284,35 @@ impl EventHandler for FeishuProcessorHandler {
                                 result.tool_calls
                             );
                             
-                            // 更新会话历史
+                            // 创建用户消息和助手消息
+                            let user_msg = Message {
+                                role: MessageRole::User,
+                                content: user_text.clone(),
+                                tool_calls: None,
+                                tool_call_id: None,
+                            };
+                            let assistant_msg = Message {
+                                role: MessageRole::Assistant,
+                                content: result.content.clone(),
+                                tool_calls: None,
+                                tool_call_id: None,
+                            };
+                            
+                            // 持久化到数据库
+                            if let Err(e) = session_store.add_message(&chat_id, &user_msg).await {
+                                warn!("持久化用户消息失败: {}", e);
+                            }
+                            if let Err(e) = session_store.add_message(&chat_id, &assistant_msg).await {
+                                warn!("持久化助手消息失败: {}", e);
+                            }
+                            
+                            // 更新内存中的会话历史
                             {
                                 let mut histories = session_history.write().await;
                                 let session = histories.entry(chat_id.clone()).or_insert_with(Vec::new);
                                 
-                                session.push(Message {
-                                    role: MessageRole::User,
-                                    content: user_text.clone(),
-                                    tool_calls: None,
-                                    tool_call_id: None,
-                                });
-                                session.push(Message {
-                                    role: MessageRole::Assistant,
-                                    content: result.content.clone(),
-                                    tool_calls: None,
-                                    tool_call_id: None,
-                                });
+                                session.push(user_msg);
+                                session.push(assistant_msg);
                                 
                                 // 限制历史长度
                                 if session.len() > MAX_HISTORY_LENGTH {
@@ -157,6 +321,11 @@ impl EventHandler for FeishuProcessorHandler {
                                 }
                                 
                                 debug!("会话历史更新: chat_id={}, 长度={}", chat_id, session.len());
+                            }
+                            
+                            // 清理数据库中的旧消息
+                            if let Err(e) = session_store.cleanup(&chat_id, MAX_HISTORY_LENGTH).await {
+                                warn!("清理旧会话历史失败: {}", e);
                             }
                             
                             // 从 TokenManager 获取缓存的 token
@@ -225,7 +394,7 @@ async fn main() -> Result<()> {
         .init();
 
     info!("🚀 NewClaw Feishu WebSocket 长连接服务启动...");
-    info!("📦 版本: 0.7.0 (集成 ChannelProcessor + TokenManager)");
+    info!("📦 版本: 0.7.0 (集成 ChannelProcessor + TokenManager + 会话持久化)");
 
     // 加载配置（使用独立配置文件）
     let config = load_config()?;
@@ -356,6 +525,12 @@ async fn main() -> Result<()> {
     );
     info!("✅ ChannelProcessor 初始化完成");
     
+    // ==================== 初始化会话历史存储 ====================
+    
+    let session_store = Arc::new(SessionHistoryStore::new(&data_dir.join("session_history.db"))?);
+    let session_history = session_store.load_all().await?;
+    info!("✅ 会话历史存储初始化完成");
+    
     // ==================== 初始化 TokenManager ====================
     
     // 获取第一个启用的账号配置
@@ -413,10 +588,12 @@ async fn main() -> Result<()> {
             continue;
         }
         
-        // 创建该账号的处理器（使用共享的 TokenManager）
+        // 创建该账号的处理器（使用共享的 TokenManager 和会话历史）
         let handler = Arc::new(FeishuProcessorHandler::new(
             processor.clone(),
             token_manager.clone(),
+            session_history.clone(),
+            session_store.clone(),
         ));
         
         let manager = Arc::new(newclaw::feishu_websocket::FeishuWebSocketManager::new(
