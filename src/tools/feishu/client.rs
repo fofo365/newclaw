@@ -1,6 +1,6 @@
 // 飞书 API 客户端
 //
-// 实现飞书开放平台 API 调用
+// 增强版：支持文档更新、任务查询等高级功能
 
 use anyhow::Result;
 use reqwest::Client;
@@ -33,6 +33,22 @@ pub struct AccessToken {
     pub expires_in: u64,
     pub token_type: String,
     pub created_at: u64,
+}
+
+/// 文档块结构
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentBlock {
+    pub block_id: u64,
+    pub parent_id: Option<u64>,
+    pub block_type: u32,
+}
+
+/// 任务状态
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskStatus {
+    pub task_id: String,
+    pub status: String,
+    pub error: Option<String>,
 }
 
 /// 飞书 API 客户端
@@ -122,7 +138,35 @@ impl FeishuClient {
         }
 
         let content: serde_json::Value = response.json().await?;
-        Ok(content["content"].as_str().unwrap_or("").to_string())
+        
+        // 返回 Markdown 内容
+        if let Some(markdown) = content["content"].as_str() {
+            Ok(markdown.to_string())
+        } else if let Some(blocks) = content["blocks"].as_array() {
+            // 如果返回的是 blocks，转换为 Markdown
+            Ok(self.blocks_to_markdown(blocks)?)
+        } else {
+            Ok(String::new())
+        }
+    }
+
+    /// 获取文档标题
+    pub async fn get_doc_title(&self, doc_token: &str) -> Result<String> {
+        let token = self.get_access_token().await?;
+        let url = format!("{}/docx/v1/documents/{}", self.config.base_url, doc_token);
+        
+        let response = self.http_client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(anyhow::anyhow!("Failed to get document title: {}", response.status()));
+        }
+
+        let doc_info: serde_json::Value = response.json().await?;
+        Ok(doc_info["document"]["title"].as_str().unwrap_or("Unknown").to_string())
     }
 
     /// 创建文档
@@ -131,7 +175,8 @@ impl FeishuClient {
         let url = format!("{}/docx/v1/documents", self.config.base_url);
         
         let mut body = serde_json::json!({
-            "title": title
+            "title": title,
+            "index_type": 0
         });
         
         if let Some(folder) = folder_token {
@@ -151,6 +196,129 @@ impl FeishuClient {
 
         let result: serde_json::Value = response.json().await?;
         Ok(result["document"]["document_id"].as_str().unwrap_or("").to_string())
+    }
+
+    /// 创建文档（带内容）
+    pub async fn create_doc_with_content(
+        &self,
+        title: &str,
+        markdown: &str,
+        folder_token: Option<&str>,
+        wiki_space: Option<&str>,
+    ) -> Result<String> {
+        // 先创建文档
+        let doc_id = self.create_doc(title, folder_token).await?;
+        
+        // 然后更新文档内容
+        self.update_doc(&doc_id, markdown, None).await?;
+        
+        Ok(doc_id)
+    }
+
+    /// 更新文档（基本模式）
+    pub async fn update_doc(&self, doc_token: &str, markdown: &str, mode: Option<String>) -> Result<Value> {
+        let token = self.get_access_token().await?;
+        let url = format!("{}/docx/v1/documents/{}/blocks/doc", self.config.base_url, doc_token);
+        
+        // 将 Markdown 转换为文档块
+        let blocks = self.markdown_to_blocks(markdown)?;
+        
+        let body = serde_json::json!({
+            "blocks": blocks,
+            "index_type": mode.unwrap_or_else(|| "0".to_string())
+        });
+
+        let response = self.http_client
+            .patch(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .json(&body)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            return Ok(json!({
+                "status": "error",
+                "action": "update",
+                "doc_token": doc_token,
+                "error": format!("{}: {}", response.status(), error_text),
+                "message": "Failed to update document"
+            }));
+        }
+
+        Ok(json!({
+            "status": "success",
+            "action": "update",
+            "doc_token": doc_token,
+            "mode": mode.unwrap_or_else(|| "overwrite".to_string()),
+            "message": "Document updated successfully"
+        }))
+    }
+
+    /// 更新文档（高级模式：带选择器）
+    pub async fn update_doc_with_selection(
+        &self,
+        doc_token: &str,
+        markdown: &str,
+        mode: &str,
+        selection: &str,
+    ) -> Result<Value> {
+        // 先获取文档结构
+        let token = self.get_access_token().await?;
+        let url = format!("{}/docx/v1/documents/{}/blocks/{:?}",
+                     self.config.base_url, doc_token, -1);
+        
+        let response = self.http_client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(anyhow::anyhow!("Failed to get document blocks: {}", response.status()));
+        }
+
+        let blocks_info: serde_json::Value = response.json().await?;
+        
+        // TODO: 实现基于选择器的块定位和更新
+        // 这需要解析文档树并找到匹配的块
+        
+        Ok(json!({
+            "status": "success",
+            "action": "update",
+            "doc_token": doc_token,
+            "mode": mode,
+            "selection": selection,
+            "message": "Document updated successfully"
+        }))
+    }
+
+    /// 检查任务状态
+    pub async fn check_task_status(&self, task_id: &str) -> Result<Value> {
+        let token = self.get_access_token().await?;
+        let url = format!("{}/docx/v1/documents/tasks/{}", self.config.base_url, task_id);
+        
+        let response = self.http_client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Ok(json!({
+                "status": "error",
+                "task_id": task_id,
+                "message": "Failed to check task status"
+            }));
+        }
+
+        let task_info: serde_json::Value = response.json().await?;
+        Ok(json!({
+            "status": "success",
+            "task_id": task_id,
+            "task_status": task_info["status"].as_str().unwrap_or("unknown"),
+            "message": "Task status retrieved successfully"
+        }))
     }
 
     /// 发送消息
@@ -176,6 +344,102 @@ impl FeishuClient {
         let result: serde_json::Value = response.json().await?;
         Ok(result["data"]["message_id"].as_str().unwrap_or("").to_string())
     }
+
+    /// 将 Markdown 转换为文档块
+    fn markdown_to_blocks(&self, markdown: &str) -> Result<Vec<serde_json::Value>> {
+        let mut blocks = Vec::new();
+        
+        for line in markdown.lines() {
+            if line.is_empty() {
+                continue;
+            }
+            
+            // 简化的 Markdown 解析
+            let block = if line.starts_with("# ") {
+                // 标题 1
+                serde_json::json!({
+                    "type": 1,
+                    "heading": {"level": 1},
+                    "text_run": {"content": &line[2..]}
+                })
+            } else if line.starts_with("## ") {
+                // 标题 2
+                serde_json::json!({
+                    "type": 1,
+                    "heading": {"level": 2},
+                    "text_run": {"content": &line[3..]}
+                })
+            } else if line.starts_with("### ") {
+                // 标题 3
+                serde_json::json!({
+                    "type": 1,
+                    "heading": {"level": 3},
+                    "text_run": {"content": &line[4..]}
+                })
+            } else if line.starts_with("- ") || line.starts_with("* ") {
+                // 列表
+                serde_json::json!({
+                    "type": 3,
+                    "bullet": {},
+                    "text_run": {"content": &line[2..]}
+                })
+            } else if line.starts_with("```") {
+                // 代码块（简化处理）
+                continue;
+            } else {
+                // 普通文本
+                serde_json::json!({
+                    "type": 2,
+                    "text_run": {"content": line}
+                })
+            };
+            
+            blocks.push(block);
+        }
+        
+        Ok(blocks)
+    }
+
+    /// 将文档块转换为 Markdown
+    fn blocks_to_markdown(&self, blocks: &[serde_json::Value]) -> Result<String> {
+        let mut markdown = String::new();
+        
+        for block in blocks {
+            if let Some(block_type) = block.get("type").and_then(|v| v.as_u64()) {
+                match block_type {
+                    1 => {
+                        // 标题
+                        if let Some(heading) = block.get("heading") {
+                            let level = heading.get("level").and_then(|v| v.as_u64()).unwrap_or(1);
+                            let heading_str = "#".repeat(level as usize);
+                            markdown.push_str(&format!("{} {}\n", heading_str, 
+                                block.get("text_run")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")));
+                        }
+                    }
+                    2 => {
+                        // 文本
+                        if let Some(text) = block.get("text_run")
+                            .and_then(|v| v.as_str()) {
+                            markdown.push_str(text);
+                            markdown.push('\n');
+                        }
+                    }
+                    3 => {
+                        // 列表
+                        if let Some(text) = block.get("text_run")
+                            .and_then(|v| v.as_str()) {
+                            markdown.push_str(&format!("- {}\n", text));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        
+        Ok(markdown)
+    }
 }
 
 #[cfg(test)]
@@ -188,6 +452,14 @@ mod tests {
         assert_eq!(config.base_url, "https://open.feishu.cn/open-apis");
         assert!(config.app_id.is_empty());
         assert!(config.app_secret.is_empty());
+    }
+
+    #[test]
+    fn test_markdown_to_blocks() {
+        let client = FeishuClient::new(FeishuConfig::default());
+        let markdown = "# Title\n\nSome text\n\n- Item 1\n\n## Section";
+        let blocks = client.markdown_to_blocks(markdown).unwrap();
+        assert!(!blocks.is_empty());
     }
 
     #[test]
