@@ -449,49 +449,86 @@ impl FeishuClient {
     /// 将 Markdown 转换为文档块
     fn markdown_to_blocks(&self, markdown: &str) -> Result<Vec<serde_json::Value>> {
         let mut blocks = Vec::new();
+        let mut in_code_block = false;
+        let mut code_content = String::new();
         
         for line in markdown.lines() {
-            if line.is_empty() {
+            // 处理代码块
+            if line.starts_with("```") {
+                if in_code_block {
+                    // 代码块结束
+                    if !code_content.is_empty() {
+                        blocks.push(serde_json::json!({
+                            "block_type": 32,
+                            "code": {
+                                "style": "plain",
+                                "elements": [{
+                                    "text_run": {
+                                        "content": code_content
+                                    }
+                                }]
+                            }
+                        }));
+                    }
+                    code_content.clear();
+                    in_code_block = false;
+                } else {
+                    in_code_block = true;
+                }
+                continue;
+            }
+            
+            if in_code_block {
+                code_content.push_str(line);
+                code_content.push('\n');
+                continue;
+            }
+            
+            // 跳过空行
+            if line.trim().is_empty() {
                 continue;
             }
             
             // 简化的 Markdown 解析
             let block = if line.starts_with("# ") {
-                // 标题 1
+                // 标题
+                let level = if line.starts_with("### ") { 3 } else if line.starts_with("## ") { 2 } else { 1 };
+                let content = &line[level+1..].trim();
                 serde_json::json!({
-                    "type": 1,
-                    "heading": {"level": 1},
-                    "text_run": {"content": &line[2..]}
-                })
-            } else if line.starts_with("## ") {
-                // 标题 2
-                serde_json::json!({
-                    "type": 1,
-                    "heading": {"level": 2},
-                    "text_run": {"content": &line[3..]}
-                })
-            } else if line.starts_with("### ") {
-                // 标题 3
-                serde_json::json!({
-                    "type": 1,
-                    "heading": {"level": 3},
-                    "text_run": {"content": &line[4..]}
+                    "block_type": 1,
+                    "heading": {
+                        "level": level,
+                        "elements": [{
+                            "text_run": {
+                                "content": content
+                            }
+                        }]
+                    }
                 })
             } else if line.starts_with("- ") || line.starts_with("* ") {
                 // 列表
+                let content = &line[2..].trim();
                 serde_json::json!({
-                    "type": 3,
-                    "bullet": {},
-                    "text_run": {"content": &line[2..]}
+                    "block_type": 3,
+                    "bullet": {
+                        "elements": [{
+                            "text_run": {
+                                "content": content
+                            }
+                        }]
+                    }
                 })
-            } else if line.starts_with("```") {
-                // 代码块（简化处理）
-                continue;
             } else {
                 // 普通文本
                 serde_json::json!({
-                    "type": 2,
-                    "text_run": {"content": line}
+                    "block_type": 2,
+                    "text": {
+                        "elements": [{
+                            "text_run": {
+                                "content": line
+                            }
+                        }]
+                    }
                 })
             };
             
