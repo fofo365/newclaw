@@ -268,73 +268,77 @@ impl Tool for FeishuDocTool {
     fn metadata(&self) -> ToolMetadata {
         ToolMetadata {
             name: "feishu_doc".to_string(),
-            description: "Feishu document operations. Actions: read, write, append, create, fetch, update.".to_string(),
+            description: "飞书文档操作工具。支持创建、读取、更新文档。\n\n推荐使用 fetch 和 update 操作。\n\nfetch: 读取文档（自动解析URL，支持分页）\n  - doc_id: 文档ID或完整URL（推荐）\n  - offset: 字符偏移量（可选，默认0）\n  - limit: 最大返回字符数（可选）\n\nupdate: 更新文档（支持7种模式）\n  - doc_id: 文档ID或完整URL\n  - mode: overwrite|append|replace_range|replace_all|insert_before|insert_after|delete_range\n  - markdown: Markdown内容\n  - selection_with_ellipsis: 位置表达式（replace_range等需要）\n  - selection_by_title: 标题定位\n\ncreate: 创建新文档\n  - title: 文档标题\n  - markdown: Markdown内容\n  - folder_token: 文件夹token\n  - wiki_node: Wiki节点token\n  - wiki_space: Wiki空间ID\n\n向后兼容：read, write, append（已弃用）\n\n示例：\n{\"action\":\"fetch\",\"doc_id\":\"https://xxx.feishu.cn/docx/TOKEN\"}\n{\"action\":\"update\",\"doc_id\":\"TOKEN\",\"mode\":\"overwrite\",\"markdown\":\"# 内容\"}\n{\"action\":\"update\",\"doc_id\":\"TOKEN\",\"mode\":\"append\",\"markdown\":\"追加内容\"}\n{\"action\":\"create\",\"title\":\"新文档\",\"markdown\":\"# 内容\"}".to_string(),
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "action": {
                         "type": "string",
-                        "description": "Document action to perform"
+                        "description": "操作类型。推荐：fetch, update。创建：create。已弃用：read, write, append",
+                        "enum": ["fetch", "update", "create", "read", "write", "append"]
                     },
                     "doc_id": {
                         "type": "string",
-                        "description": "Document ID or URL (required for read, write, append, fetch, update)"
+                        "description": "文档ID或完整URL（推荐，会自动解析token）。示例：https://xxx.feishu.cn/docx/WHsldVn1OozVGuxXy1zccPl5nr3"
                     },
                     "doc_token": {
                         "type": "string",
-                        "description": "Document token (legacy, use doc_id instead)"
+                        "description": "文档token（旧参数，不推荐）"
                     },
                     "content": {
                         "type": "string",
-                        "description": "Content to write or append (required for write, append)"
+                        "description": "要写入或追加的内容（旧参数，已弃用，请用markdown参数）"
                     },
                     "markdown": {
                         "type": "string",
-                        "description": "Markdown content (for create, update)"
+                        "description": "Markdown内容（用于create和update）"
                     },
                     "title": {
                         "type": "string",
-                        "description": "Document title (required for create)"
+                        "description": "文档标题（create时必填）"
                     },
                     "folder_token": {
                         "type": "string",
-                        "description": "Folder token (optional)"
+                        "description": "文件夹token（可选）"
                     },
                     "wiki_node": {
                         "type": "string",
-                        "description": "Wiki node token (optional, for create)"
+                        "description": "Wiki节点token（可选，用于create）"
                     },
                     "wiki_space": {
                         "type": "string",
-                        "description": "Wiki space ID (optional, for create)"
+                        "description": "Wiki空间ID（可选，用于create）"
                     },
                     "offset": {
                         "type": "integer",
-                        "description": "Character offset (for fetch, optional)"
+                        "description": "字符偏移量（fetch时使用，可选，默认0）",
+                        "minimum": 0
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "Max characters to return (for fetch, optional)"
+                        "description": "最大返回字符数（fetch时使用，可选）",
+                        "minimum": 1
                     },
                     "mode": {
                         "type": "string",
-                        "description": "Update mode: overwrite, append, replace_range, replace_all, insert_before, insert_after, delete_range"
+                        "description": "更新模式（update时使用）：overwrite（覆盖）|append（追加）|replace_range（替换范围）|replace_all（全局替换）|insert_before（插入前）|insert_after（插入后）|delete_range（删除范围）",
+                        "enum": ["overwrite", "append", "replace_range", "replace_all", "insert_before", "insert_after", "delete_range"]
                     },
                     "selection_with_ellipsis": {
                         "type": "string",
-                        "description": "Position with ellipsis (for update)"
+                        "description": "位置表达式（用于replace_range等，如\"开头...结尾\"）"
                     },
                     "selection_by_title": {
                         "type": "string",
-                        "description": "Position by title (for update)"
+                        "description": "标题定位（如\"## 章节标题\"）"
                     },
                     "new_title": {
                         "type": "string",
-                        "description": "New document title (optional, for update)"
+                        "description": "新文档标题（可选，用于update）"
                     },
                     "task_id": {
                         "type": "string",
-                        "description": "Task ID for async operation (for update)"
+                        "description": "异步任务ID（用于update，查询任务状态）"
                     }
                 },
                 "required": ["action"]
