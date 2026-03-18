@@ -15,6 +15,14 @@ use crate::tools::{
     SessionsTool, SubagentsTool, NodesTool,
     FeishuDocTool, FeishuBitableTool, FeishuDriveTool, FeishuWikiTool, FeishuChatTool,
     TtsTool, PermissionTool, ChannelConfigTool,
+    // 新增工具
+    diagnostic::DiagnosticTool,
+    cron::CronTool,
+    workflow::WorkflowTool,
+    safety::SafetyTool,
+    channel_permission::ChannelPermissionTool,
+    memory_archive::MemoryArchiveTool,
+    report::ReportTool,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -120,6 +128,36 @@ pub async fn init_builtin_tools_with_permissions(
     // ==================== TTS 工具 ====================
     
     registry.register(TtsTool::new()).await?;
+    tool_count += 1;
+
+    // ==================== 诊断和系统管理工具 ====================
+    
+    // 系统诊断工具
+    registry.register(DiagnosticTool::new()).await?;
+    tool_count += 1;
+    
+    // Cron 任务管理工具
+    registry.register(CronTool::new()).await?;
+    tool_count += 1;
+    
+    // 诊断工作流工具
+    registry.register(WorkflowTool::new()).await?;
+    tool_count += 1;
+    
+    // AI 行为约束保护工具
+    registry.register(SafetyTool::new()).await?;
+    tool_count += 1;
+    
+    // 通道权限配置工具
+    registry.register(ChannelPermissionTool::new()).await?;
+    tool_count += 1;
+    
+    // 记忆归档恢复工具
+    registry.register(MemoryArchiveTool::new()).await?;
+    tool_count += 1;
+    
+    // 诊断报告生成工具
+    registry.register(ReportTool::new()).await?;
     tool_count += 1;
 
     // ==================== 权限和配置工具 ====================
