@@ -291,53 +291,34 @@ impl FeishuClient {
         title: &str,
         markdown: &str,
         folder_token: Option<&str>,
-        wiki_space: Option<&str>,
+        _wiki_space: Option<&str>,
     ) -> Result<String> {
+        tracing::info!("🔧 create_doc_with_content: title={}, markdown_len={}", title, markdown.len());
+        
         // 先创建文档
         let doc_id = self.create_doc(title, folder_token).await?;
+        tracing::info!("✅ 文档创建成功: doc_id={}", doc_id);
         
         // 如果有内容，添加到文档
         if !markdown.is_empty() {
+            tracing::info!("📝 开始添加内容到文档...");
+            
             // 等待文档初始化完成
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             
-            // 创建初始块
-            let initial_block = vec![
-                serde_json::json!({
-                    "block_type": 2,
-                    "text_run": {
-                        "content": title
-                    }
-                })
-            ];
-            
-            let token = self.get_access_token_with_type(true).await?;
-            let url = format!("{}/docx/v1/documents/{}/blocks/doc", self.config.base_url, doc_id);
-            
-            let response = self.http_client
-                .patch(&url)
-                .header("Authorization", format!("Bearer {}", token))
-                .json(&serde_json::json!({
-                    "blocks": initial_block,
-                    "index_type": 0
-                }))
-                .send()
-                .await?;
-            
-            if !response.status().is_success() {
-                tracing::warn!("创建初始块失败: {}", response.status());
-            }
-            
-            // 然后更新文档内容
+            // 使用修复后的 update_doc 函数添加内容
             match self.update_doc(&doc_id, markdown, None).await {
-                Ok(_) => Ok(doc_id),
-                Err(e) => {
-                    tracing::warn!("创建文档后更新内容失败: {}", e);
-                    // 即使更新失败，也返回文档 ID（因为文档已创建）
+                Ok(result) => {
+                    tracing::info!("✅ 文档内容添加成功");
                     Ok(doc_id)
+                },
+                Err(e) => {
+                    tracing::error!("❌ 文档内容添加失败: {}", e);
+                    Err(e)
                 }
             }
         } else {
+            tracing::warn!("⚠️ 没有提供内容，跳过内容添加");
             Ok(doc_id)
         }
     }
