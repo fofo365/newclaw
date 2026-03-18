@@ -141,7 +141,7 @@ Actions:
             "success": true,
             "count": tasks.len(),
             "tasks": tasks,
-            "warning": if tasks.is_empty() { "没有找到定时任务" } else { null }
+            "warning": if tasks.is_empty() { json!("没有找到定时任务") } else { json!(null) }
         })
     }
     
@@ -293,7 +293,7 @@ impl Tool for CronTool {
     async fn execute(&self, args: JsonValue) -> anyhow::Result<JsonValue> {
         let action = args.get("action")
             .and_then(|a| a.as_str())
-            .ok_or_else(|| ToolError::InvalidParameters("Missing 'action' parameter".to_string()))?;
+            .ok_or_else(|| ToolError::InvalidArguments("Missing 'action' parameter".to_string()))?;
         
         info!("Cron tool called with action: {}", action);
         
@@ -302,7 +302,7 @@ impl Tool for CronTool {
             "get" => {
                 let task_id = args.get("task_id")
                     .and_then(|t| t.as_str())
-                    .ok_or_else(|| ToolError::InvalidParameters("Missing 'task_id' parameter".to_string()))?;
+                    .ok_or_else(|| ToolError::InvalidArguments("Missing 'task_id' parameter".to_string()))?;
                 json!({
                     "success": false,
                     "error": "not_implemented",
@@ -312,17 +312,17 @@ impl Tool for CronTool {
             "create" => {
                 let schedule = args.get("schedule")
                     .and_then(|s| s.as_str())
-                    .ok_or_else(|| ToolError::InvalidParameters("Missing 'schedule' parameter".to_string()))?;
+                    .ok_or_else(|| ToolError::InvalidArguments("Missing 'schedule' parameter".to_string()))?;
                 let command = args.get("command")
                     .and_then(|c| c.as_str())
-                    .ok_or_else(|| ToolError::InvalidParameters("Missing 'command' parameter".to_string()))?;
+                    .ok_or_else(|| ToolError::InvalidArguments("Missing 'command' parameter".to_string()))?;
                 let description = args.get("description").and_then(|d| d.as_str());
                 self.create_task(schedule, command, description)
             }
             "delete" => {
                 let task_id = args.get("task_id")
                     .and_then(|t| t.as_str())
-                    .ok_or_else(|| ToolError::InvalidParameters("Missing 'task_id' parameter".to_string()))?;
+                    .ok_or_else(|| ToolError::InvalidArguments("Missing 'task_id' parameter".to_string()))?;
                 let confirm = args.get("confirm").and_then(|c| c.as_bool()).unwrap_or(false);
                 self.delete_task(task_id, confirm)
             }
@@ -334,7 +334,7 @@ impl Tool for CronTool {
                 })
             }
             _ => {
-                return Err(ToolError::InvalidParameters(format!("Unknown action: {}", action)).into());
+                return Err(ToolError::InvalidArguments(format!("Unknown action: {}", action)).into());
             }
         };
         

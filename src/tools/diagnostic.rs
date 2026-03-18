@@ -144,7 +144,7 @@ Actions:
     
     /// 检查日志
     fn check_logs(&self, lines: usize) -> JsonValue {
-        let mut logs = Vec::new();
+        let mut logs: Vec<String> = Vec::new();
         
         // 检查 systemd journal
         if let Ok(output) = Command::new("journalctl")
@@ -153,7 +153,7 @@ Actions:
         {
             let journal = String::from_utf8_lossy(&output.stdout);
             for line in journal.lines().take(lines) {
-                logs.push(line);
+                logs.push(line.to_string());
             }
         }
         
@@ -232,15 +232,15 @@ Actions:
         let services = self.check_services(None);
         
         // 分析问题
-        let mut issues = Vec::new();
-        let mut recommendations = Vec::new();
+        let mut issues: Vec<String> = Vec::new();
+        let mut recommendations: Vec<String> = Vec::new();
         
         // 检查内存
         if let Some(mem) = status.get("system").and_then(|s| s.get("memory")) {
             if let Some(raw) = mem.get("raw").and_then(|r| r.as_str()) {
                 if raw.contains("90%") || raw.contains("95%") {
-                    issues.push("内存使用率过高");
-                    recommendations.push("考虑清理缓存或增加内存");
+                    issues.push("内存使用率过高".to_string());
+                    recommendations.push("考虑清理缓存或增加内存".to_string());
                 }
             }
         }
@@ -249,8 +249,9 @@ Actions:
         if let Some(svc_list) = services.get("services").and_then(|s| s.as_array()) {
             for svc in svc_list {
                 if svc.get("failed").and_then(|f| f.as_bool()).unwrap_or(false) {
-                    issues.push(format!("服务 {} 处于失败状态", svc.get("name").and_then(|n| n.as_str()).unwrap_or("unknown")));
-                    recommendations.push(format!("检查服务 {} 的日志并尝试重启", svc.get("name").and_then(|n| n.as_str()).unwrap_or("unknown")));
+                    let svc_name = svc.get("name").and_then(|n| n.as_str()).unwrap_or("unknown");
+                    issues.push(format!("服务 {} 处于失败状态", svc_name));
+                    recommendations.push(format!("检查服务 {} 的日志并尝试重启", svc_name));
                 }
             }
         }
@@ -258,8 +259,8 @@ Actions:
         // 检查日志错误
         if let Some(log_list) = logs.get("logs").and_then(|l| l.as_array()) {
             if log_list.len() > 10 {
-                issues.push("发现大量错误日志");
-                recommendations.push("检查日志详情，定位具体问题");
+                issues.push("发现大量错误日志".to_string());
+                recommendations.push("检查日志详情，定位具体问题".to_string());
             }
         }
         
@@ -296,7 +297,7 @@ impl Tool for DiagnosticTool {
     async fn execute(&self, args: JsonValue) -> anyhow::Result<JsonValue> {
         let action = args.get("action")
             .and_then(|a| a.as_str())
-            .ok_or_else(|| ToolError::InvalidParameters("Missing 'action' parameter".to_string()))?;
+            .ok_or_else(|| ToolError::InvalidArguments("Missing 'action' parameter".to_string()))?;
         
         info!("Diagnostic tool called with action: {}", action);
         
@@ -315,7 +316,7 @@ impl Tool for DiagnosticTool {
             }
             "full_diagnosis" => self.full_diagnosis(),
             _ => {
-                return Err(ToolError::InvalidParameters(format!("Unknown action: {}", action)).into());
+                return Err(ToolError::InvalidArguments(format!("Unknown action: {}", action)).into());
             }
         };
         
