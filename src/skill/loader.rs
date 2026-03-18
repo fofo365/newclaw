@@ -51,11 +51,11 @@ impl SkillLoader {
     /// 使用默认路径
     pub fn with_default_paths() -> Self {
         let mut loader = Self::new();
-        
-        // 添加默认路径
-        loader.search_paths.push(PathBuf::from("/root/.openclaw/workspace/skills"));
-        loader.search_paths.push(PathBuf::from("/root/.openclaw/extensions"));
-        
+
+        // 添加 NewClaw 默认路径
+        loader.search_paths.push(PathBuf::from("/root/newclaw/skills"));
+        loader.search_paths.push(PathBuf::from("/root/newclaw/extensions"));
+
         loader
     }
     

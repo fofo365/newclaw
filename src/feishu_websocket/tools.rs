@@ -94,8 +94,8 @@ impl ToolManager {
     /// 初始化所有内置工具
     async fn init_tools(&self) -> Result<()> {
         let data_dir = PathBuf::from("/var/lib/newclaw");
-        let workspace = PathBuf::from("/root/.openclaw/workspace-dev");
-        
+        let workspace = PathBuf::from("/var/lib/newclaw/workspace");
+
         // 确保目录存在
         std::fs::create_dir_all(&data_dir)?;
         std::fs::create_dir_all(&workspace)?;

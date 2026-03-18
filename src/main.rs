@@ -148,6 +148,12 @@ enum Commands {
         #[command(subcommand)]
         action: SessionCommands,
     },
+
+    /// Skill management (v0.7.0)
+    Skill {
+        #[command(subcommand)]
+        action: SkillCommands,
+    },
 }
 
 // ============== 子命令定义 ==============
@@ -388,24 +394,102 @@ enum StrategyCommands {
 enum SessionCommands {
     /// List all sessions
     List,
-    
+
     /// Create a new session
     Create {
         /// Session name
         #[arg(short, long)]
         name: Option<String>,
     },
-    
+
     /// Switch to a session
     Switch {
         /// Session ID
         id: String,
     },
-    
+
     /// Close a session
     Close {
         /// Session ID
         id: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum SkillCommands {
+    /// Search skills from skillhub
+    Search {
+        /// Search query
+        query: String,
+
+        /// Results per page
+        #[arg(short, long, default_value = "20")]
+        limit: usize,
+
+        /// Page number
+        #[arg(short, long, default_value = "1")]
+        page: usize,
+    },
+
+    /// Install a skill
+    Install {
+        /// Skill name
+        name: String,
+
+        /// Version (optional)
+        #[arg(short, long)]
+        version: Option<String>,
+
+        /// Force reinstall
+        #[arg(short, long)]
+        force: bool,
+    },
+
+    /// Uninstall a skill
+    Uninstall {
+        /// Skill name
+        name: String,
+
+        /// Force remove without confirmation
+        #[arg(short, long)]
+        force: bool,
+    },
+
+    /// Update skills
+    Update {
+        /// Skill name (optional, updates all if not specified)
+        name: Option<String>,
+
+        /// Check updates only, don't install
+        #[arg(short, long)]
+        check_only: bool,
+    },
+
+    /// List installed skills
+    List {
+        /// Show detailed information
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Filter by name
+        #[arg(short, long)]
+        filter: Option<String>,
+    },
+
+    /// Show skill information
+    Info {
+        /// Skill name
+        name: String,
+    },
+
+    /// Verify a skill
+    Verify {
+        /// Skill name
+        name: String,
+
+        /// Check signature
+        #[arg(short, long)]
+        signature: bool,
     },
 }
 
@@ -944,7 +1028,7 @@ async fn handle_session_command(action: SessionCommands) -> anyhow::Result<()> {
             let sessions = data["sessions"].as_array().cloned().unwrap_or_default();
             println!("💬 Sessions ({} total):", sessions.len());
             for s in sessions {
-                println!("  [{}] {} - {} messages", 
+                println!("  [{}] {} - {} messages",
                     s["id"].as_str().unwrap_or("?").chars().take(8).collect::<String>(),
                     s["title"].as_str().unwrap_or("?"),
                     s["message_count"].as_u64().unwrap_or(0)
@@ -963,5 +1047,12 @@ async fn handle_session_command(action: SessionCommands) -> anyhow::Result<()> {
             println!("💬 Session closed: {}", id);
         }
     }
+
+    // Skill commands
+    Commands::Skill { action } => {
+        use newclaw::cli::skill::handle_skill_command;
+        handle_skill_command(action).await?;
+    }
+
     Ok(())
 }

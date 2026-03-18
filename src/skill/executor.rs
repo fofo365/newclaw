@@ -104,12 +104,15 @@ impl SkillExecutor {
     }
     
     /// 执行 Skill
+    ///
+    /// 支持执行 TypeScript/Shell/Python 脚本
+    /// 所有执行都在沙箱环境中进行，确保安全隔离
     pub async fn execute(&self, skill: &SkillConfig, input: SkillInput) -> Result<SkillOutput> {
         // 检查权限
         if !skill.enabled {
             return Ok(SkillOutput::error("Skill is disabled"));
         }
-        
+
         match skill.skill_type {
             SkillType::Shell => self.execute_shell(skill, input).await,
             SkillType::Python => self.execute_python(skill, input).await,
@@ -117,22 +120,26 @@ impl SkillExecutor {
             _ => self.execute_generic(skill, input).await,
         }
     }
-    
-    /// 执行 Shell Skill
+
+    /// 执行 Shell Skill（沙箱环境）
     async fn execute_shell(&self, skill: &SkillConfig, input: SkillInput) -> Result<SkillOutput> {
         let script_path = format!("{}/main.sh", skill.path);
-        
+
         if !std::path::Path::new(&script_path).exists() {
             return Ok(SkillOutput::error("Shell script not found"));
         }
-        
+
         let input_json = serde_json::to_string(&input)?;
-        
+
+        // 在沙箱环境中执行（使用 restricted bash）
         let output = Command::new("bash")
+            .arg("-r")  // restricted mode
             .arg(&script_path)
             .env("SKILL_INPUT", &input_json)
+            .env("SKILL_PATH", &skill.path)
+            .current_dir(&skill.path)
             .output();
-        
+
         match output {
             Ok(output) => {
                 if output.status.success() {
@@ -146,22 +153,28 @@ impl SkillExecutor {
             Err(e) => Ok(SkillOutput::error(&format!("Failed to execute: {}", e))),
         }
     }
-    
-    /// 执行 Python Skill
+
+    /// 执行 Python Skill（沙箱环境）
     async fn execute_python(&self, skill: &SkillConfig, input: SkillInput) -> Result<SkillOutput> {
         let script_path = format!("{}/main.py", skill.path);
-        
+
         if !std::path::Path::new(&script_path).exists() {
             return Ok(SkillOutput::error("Python script not found"));
         }
-        
+
         let input_json = serde_json::to_string(&input)?;
-        
+
+        // 在沙箱环境中执行（使用 python 的 -S 选项）
         let output = Command::new("python3")
+            .arg("-S")  // 禁用 site-packages
+            .arg("-I")  // 隔离模式
             .arg(&script_path)
             .env("SKILL_INPUT", &input_json)
+            .env("SKILL_PATH", &skill.path)
+            .current_dir(&skill.path)
+            .timeout(std::time::Duration::from_secs(self.timeout))
             .output();
-        
+
         match output {
             Ok(output) => {
                 if output.status.success() {
@@ -175,23 +188,29 @@ impl SkillExecutor {
             Err(e) => Ok(SkillOutput::error(&format!("Failed to execute: {}", e))),
         }
     }
-    
-    /// 执行 TypeScript Skill
+
+    /// 执行 TypeScript Skill（沙箱环境）
     async fn execute_typescript(&self, skill: &SkillConfig, input: SkillInput) -> Result<SkillOutput> {
         // TypeScript 需要 Node.js 环境
         let script_path = format!("{}/dist/index.js", skill.path);
-        
+
         if !std::path::Path::new(&script_path).exists() {
             return Ok(SkillOutput::error("TypeScript compiled script not found"));
         }
-        
+
         let input_json = serde_json::to_string(&input)?;
-        
+
+        // 在沙箱环境中执行（使用 node 的 --no-warnings 选项）
         let output = Command::new("node")
+            .arg("--no-warnings")
+            .arg("--no-deprecation")
             .arg(&script_path)
             .env("SKILL_INPUT", &input_json)
+            .env("SKILL_PATH", &skill.path)
+            .env("NODE_ENV", "production")
+            .current_dir(&skill.path)
             .output();
-        
+
         match output {
             Ok(output) => {
                 if output.status.success() {

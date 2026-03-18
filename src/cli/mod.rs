@@ -9,6 +9,7 @@
 // 6. 权限控制 (v0.7.0)
 // 7. 记忆管理 (v0.7.0) - 多层隔离
 // 8. 策略管理 (v0.7.0) - 动态调整
+// 9. Skill 管理 (v0.7.0) - clawhub 集成
 
 use std::io::{self, Write};
 use std::sync::Arc;
@@ -24,6 +25,8 @@ use crate::channel::{ChannelPermission, ChannelType, ChannelMember, ChannelRole,
 use crate::channel::{ChannelMessage, MessageContent};
 use crate::memory::{SQLiteMemoryStorage, StorageConfig};
 use crate::context::StrategyEngine;
+
+pub mod skill;
 
 /// NewClaw CLI
 #[derive(Parser, Debug)]

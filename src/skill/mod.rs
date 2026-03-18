@@ -1,16 +1,19 @@
 // Skill Module - v0.5.5
 //
 // OpenClaw Skill 系统兼容层 + 沙箱安全控制
+// 支持 clawhub 和 OpenClaw 插件市场
 
 pub mod loader;
 pub mod executor;
 pub mod registry;
 pub mod sandbox;
+pub mod skillhub;
 
 pub use loader::{SkillLoader, SkillManifest};
 pub use executor::{SkillExecutor, SkillInput, SkillOutput};
 pub use registry::SkillRegistry;
 pub use sandbox::{SandboxManager, SandboxConfig, SandboxResult};
+pub use skillhub::{SkillhubClient, SkillhubSkill, SkillhubSearchResult};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
