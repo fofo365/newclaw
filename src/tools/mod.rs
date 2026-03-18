@@ -20,6 +20,7 @@ pub mod init;
 pub mod diagnostic;
 pub mod cron;
 pub mod workflow;
+pub mod safety;
 
 pub use error::ToolError;
 pub use executor::ToolExecutor;

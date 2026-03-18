@@ -19,6 +19,7 @@ use crate::tools::{
     diagnostic::DiagnosticTool,
     cron::CronTool,
     workflow::WorkflowTool,
+    safety::SafetyTool,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -138,6 +139,10 @@ pub async fn init_builtin_tools_with_permissions(
     
     // 诊断工作流工具
     registry.register(WorkflowTool::new()).await?;
+    tool_count += 1;
+    
+    // AI 行为约束保护工具
+    registry.register(SafetyTool::new()).await?;
     tool_count += 1;
 
     // ==================== 权限和配置工具 ====================
