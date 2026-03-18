@@ -15,7 +15,8 @@ pub struct FeishuConfig {
     pub app_id: String,
     pub app_secret: String,
     pub base_url: String,
-    pub user_access_token: Option<String>,
+    pub tenant_access_token: Option<String>,  // 应用级令牌（t-开头）
+    pub user_access_token: Option<String>,    // 用户级令牌（u-开头）
 }
 
 impl Default for FeishuConfig {
@@ -24,6 +25,7 @@ impl Default for FeishuConfig {
             app_id: String::new(),
             app_secret: String::new(),
             base_url: "https://open.feishu.cn/open-apis".to_string(),
+            tenant_access_token: None,
             user_access_token: None,
         }
     }
@@ -50,10 +52,17 @@ impl FeishuConfig {
             .unwrap_or("")
             .to_string();
             
-        let user_access_token = config.get("feishu")
+        let tenant_access_token = config.get("feishu")
             .and_then(|f| f.get("accounts"))
             .and_then(|a| a.get("default"))
             .and_then(|d| d.get("access_token"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let user_access_token = config.get("feishu")
+            .and_then(|f| f.get("accounts"))
+            .and_then(|a| a.get("default"))
+            .and_then(|d| d.get("user_access_token"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
         
@@ -61,6 +70,7 @@ impl FeishuConfig {
             app_id,
             app_secret,
             base_url: "https://open.feishu.cn/open-apis".to_string(),
+            tenant_access_token,
             user_access_token,
         })
     }
@@ -109,12 +119,36 @@ impl FeishuClient {
 
     /// 获取访问令牌（优先使用用户令牌，否则使用租户令牌）
     pub async fn get_access_token(&self) -> Result<String> {
-        // 优先使用配置的用户访问令牌
-        if let Some(user_token) = &self.config.user_access_token {
-            return Ok(user_token.clone());
+        self.get_access_token_with_type(false).await
+    }
+
+    /// 获取指定类型的访问令牌
+    /// require_user: true 表示需要用户级令牌（用于创建文档等用户身份操作）
+    pub async fn get_access_token_with_type(&self, require_user: bool) -> Result<String> {
+        // 如果需要用户级令牌
+        if require_user {
+            if let Some(user_token) = &self.config.user_access_token {
+                // 验证令牌格式（应该以 u- 开头）
+                if user_token.starts_with("u-") {
+                    return Ok(user_token.clone());
+                }
+                tracing::warn!("配置的 user_access_token 格式不正确（应以 u- 开头），实际: {}",
+                    if user_token.len() > 10 { &user_token[..10] } else { user_token });
+            }
+            return Err(anyhow::anyhow!("需要用户级访问令牌（user_access_token），但未配置或格式不正确"));
         }
 
-        // 否则使用租户令牌
+        // 优先使用配置的租户访问令牌
+        if let Some(tenant_token) = &self.config.tenant_access_token {
+            // 验证令牌格式（应该以 t- 开头）
+            if tenant_token.starts_with("t-") {
+                return Ok(tenant_token.clone());
+            }
+            tracing::warn!("配置的 tenant_access_token 格式不正确（应以 t- 开头），实际: {}",
+                if tenant_token.len() > 10 { &tenant_token[..10] } else { tenant_token });
+        }
+
+        // 否则动态获取租户访问令牌
         {
             let token = self.tenant_access_token.read().await;
             if let Some(token) = token.as_ref() {
@@ -122,7 +156,7 @@ impl FeishuClient {
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
                     .as_secs();
-                
+
                 // 如果令牌还有效（提前 5 分钟刷新）
                 if token.created_at + token.expires_in - 300 > now {
                     return Ok(token.access_token.clone());
@@ -214,16 +248,16 @@ impl FeishuClient {
         Ok(doc_info["document"]["title"].as_str().unwrap_or("Unknown").to_string())
     }
 
-    /// 创建文档
+    /// 创建文档（需要用户级令牌）
     pub async fn create_doc(&self, title: &str, folder_token: Option<&str>) -> Result<String> {
-        let token = self.get_access_token().await?;
+        let token = self.get_access_token_with_type(true).await?;
         let url = format!("{}/docx/v1/documents", self.config.base_url);
-        
+
         let mut body = serde_json::json!({
             "title": title,
             "index_type": 0
         });
-        
+
         if let Some(folder) = folder_token {
             body["folder_token"] = serde_json::json!(folder);
         }
@@ -235,17 +269,20 @@ impl FeishuClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            return Err(anyhow::anyhow!("Failed to create document: {}", response.status()));
+        let status = response.status();
+
+        if !status.is_success() {
+            let error_text = response.text().await?;
+            return Err(anyhow::anyhow!("Failed to create document: {} - {}", status, error_text));
         }
 
         let result: serde_json::Value = response.json().await?;
-        
+
         // 飞书 API 返回结构: { "code": 0, "data": { "document": { "document_id": "..." } } }
         let doc_id = result["data"]["document"]["document_id"]
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("No document_id in response"))?;
-            
+
         Ok(doc_id.to_string())
     }
 
@@ -275,7 +312,7 @@ impl FeishuClient {
                 })
             ];
             
-            let token = self.get_access_token().await?;
+            let token = self.get_access_token_with_type(true).await?;
             let url = format!("{}/docx/v1/documents/{}/blocks/doc", self.config.base_url, doc_id);
             
             let response = self.http_client
@@ -306,9 +343,9 @@ impl FeishuClient {
         }
     }
 
-    /// 更新文档（基本模式）
+    /// 更新文档（需要用户级令牌）
     pub async fn update_doc(&self, doc_token: &str, markdown: &str, mode: Option<String>) -> Result<Value> {
-        let token = self.get_access_token().await?;
+        let token = self.get_access_token_with_type(true).await?;
         let url = format!("{}/docx/v1/documents/{}/blocks/doc", self.config.base_url, doc_token);
         
         // 将 Markdown 转换为文档块

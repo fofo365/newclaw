@@ -647,6 +647,7 @@ impl DashboardState {
             app_id: app_id.clone(),
             app_secret: app_secret.clone(),
             base_url: "https://open.feishu.cn/open-apis".to_string(),
+            tenant_access_token: None,
             user_access_token: None,
         };
 

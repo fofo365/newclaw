@@ -25,7 +25,11 @@ impl FeishuDocTool {
                 tracing::info!("✅ Feishu配置加载成功");
                 tracing::info!("  - app_id: {}", if cfg.app_id.is_empty() { "(空)" } else { &cfg.app_id[..8.min(cfg.app_id.len())] });
                 tracing::info!("  - app_secret: {}", if cfg.app_secret.is_empty() { "(空)" } else { "已设置" });
-                tracing::info!("  - user_access_token: {}", 
+                tracing::info!("  - tenant_access_token: {}",
+                    cfg.tenant_access_token.as_ref()
+                        .map(|t| if t.len() > 10 { &t[..10] } else { t })
+                        .unwrap_or("(空)"));
+                tracing::info!("  - user_access_token: {}",
                     cfg.user_access_token.as_ref()
                         .map(|t| if t.len() > 10 { &t[..10] } else { t })
                         .unwrap_or("(空)"));
