@@ -21,6 +21,7 @@ pub mod diagnostic;
 pub mod cron;
 pub mod workflow;
 pub mod safety;
+pub mod channel_permission;
 
 pub use error::ToolError;
 pub use executor::ToolExecutor;

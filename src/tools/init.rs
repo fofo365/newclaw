@@ -20,6 +20,7 @@ use crate::tools::{
     cron::CronTool,
     workflow::WorkflowTool,
     safety::SafetyTool,
+    channel_permission::ChannelPermissionTool,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -143,6 +144,10 @@ pub async fn init_builtin_tools_with_permissions(
     
     // AI 行为约束保护工具
     registry.register(SafetyTool::new()).await?;
+    tool_count += 1;
+    
+    // 通道权限配置工具
+    registry.register(ChannelPermissionTool::new()).await?;
     tool_count += 1;
 
     // ==================== 权限和配置工具 ====================
