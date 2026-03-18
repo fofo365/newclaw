@@ -114,16 +114,16 @@ impl SkillhubClient {
 
         // 3. 安装到本地
         let install_path = self.skills_dir.join(&skill.name);
-        let dir_str = self.skills_dir.to_string_lossy().to_string();
-
-        let install_args = if let Some(v) = version {
-            vec!["install", "--dir", &dir_str, &format!("{}@{}", name, v)]
-        } else {
-            vec!["install", "--dir", &dir_str, name]
-        };
 
         let output = Command::new("skillhub")
-            .args(&install_args)
+            .arg("install")
+            .arg("--dir")
+            .arg(self.skills_dir.to_string_lossy().as_ref())
+            .arg(if let Some(v) = version {
+                format!("{}@{}", name, v)
+            } else {
+                name.to_string()
+            })
             .output()
             .map_err(|e| anyhow::anyhow!("skillhub CLI 不可用: {}", e))?;
 

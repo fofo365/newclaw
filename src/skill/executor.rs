@@ -172,7 +172,6 @@ impl SkillExecutor {
             .env("SKILL_INPUT", &input_json)
             .env("SKILL_PATH", &skill.path)
             .current_dir(&skill.path)
-            .timeout(std::time::Duration::from_secs(self.timeout))
             .output();
 
         match output {

@@ -25,19 +25,19 @@ use clap::{Parser, Subcommand};
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
-    
+
     /// LLM Provider: openai, claude, glm
     #[arg(short, long, global = true)]
     provider: Option<String>,
-    
+
     /// Model to use
     #[arg(short, long, global = true)]
     model: Option<String>,
-    
+
     /// Config file path
     #[arg(short, long, global = true)]
     config: Option<String>,
-    
+
     /// Verbose output
     #[arg(short, long, global = true)]
     verbose: bool,
@@ -47,102 +47,102 @@ struct Cli {
 enum Commands {
     /// Run in interactive chat mode
     Chat,
-    
+
     /// Start web gateway server
     Gateway {
         /// Port to listen on
         #[arg(long, default_value = "3000")]
         port: u16,
-        
+
         /// Host to bind to
         #[arg(long, default_value = "0.0.0.0")]
         host: String,
     },
-    
+
     /// Start dashboard server
     Dashboard {
         /// Port to listen on
         #[arg(long, default_value = "8080")]
         port: u16,
-        
+
         /// Host to bind to
         #[arg(long, default_value = "0.0.0.0")]
         host: String,
     },
-    
+
     /// Get dashboard pair code for authentication
     #[command(name = "paircode")]
     PairCode,
-    
+
     /// Generate example configuration file
     Config {
         /// Output file path (default: stdout)
         #[arg(short, long)]
         output: Option<String>,
     },
-    
+
     /// List and manage plugins
     Plugin {
         #[command(subcommand)]
         action: Option<PluginCommands>,
     },
-    
+
     /// Manage tools
     Tools {
         #[command(subcommand)]
         action: Option<ToolCommands>,
     },
-    
+
     // ============== v0.7.0 新增命令 ==============
-    
+
     /// Task management (v0.7.0)
     Task {
         #[command(subcommand)]
         action: TaskCommands,
     },
-    
+
     /// DAG workflow management (v0.7.0)
     Dag {
         #[command(subcommand)]
         action: DagCommands,
     },
-    
+
     /// Schedule management (v0.7.0)
     Schedule {
         #[command(subcommand)]
         action: ScheduleCommands,
     },
-    
+
     /// Memory management (v0.7.0)
     Memory {
         #[command(subcommand)]
         action: MemoryCommands,
     },
-    
+
     /// Federation management (v0.7.0)
     Federation {
         #[command(subcommand)]
         action: FederationCommands,
     },
-    
+
     /// Audit log queries (v0.7.0)
     Audit {
         #[command(subcommand)]
         action: AuditCommands,
     },
-    
+
     /// Watchdog monitoring (v0.6.0)
     Watchdog {
         #[command(subcommand)]
         action: WatchdogCommands,
     },
-    
+
     /// Context strategy management (v0.5.0)
     Strategy {
         #[command(subcommand)]
         action: StrategyCommands,
     },
-    
+
     /// Session management (v0.7.0)
     Session {
         #[command(subcommand)]
@@ -162,13 +162,13 @@ enum Commands {
 enum PluginCommands {
     /// List installed plugins
     List,
-    
+
     /// Install a plugin
     Install {
         /// Plugin name or path
         name: String,
     },
-    
+
     /// Remove a plugin
     Remove {
         /// Plugin name
@@ -180,12 +180,12 @@ enum PluginCommands {
 enum ToolCommands {
     /// List available tools
     List,
-    
+
     /// Execute a tool
     Exec {
         /// Tool name
         name: String,
-        
+
         /// JSON parameters
         #[arg(short, long)]
         params: Option<String>,
@@ -196,23 +196,23 @@ enum ToolCommands {
 enum TaskCommands {
     /// List all tasks
     List,
-    
+
     /// Create a new task
     Create {
         /// Task name
         name: String,
-        
+
         /// Task type (chat, tool_call, workflow)
         #[arg(short, long, default_value = "chat")]
         task_type: String,
     },
-    
+
     /// Get task status
     Status {
         /// Task ID
         id: String,
     },
-    
+
     /// Cancel a task
     Cancel {
         /// Task ID
@@ -224,23 +224,23 @@ enum TaskCommands {
 enum DagCommands {
     /// List all DAG workflows
     List,
-    
+
     /// Create a new DAG workflow
     Create {
         /// DAG name
         name: String,
-        
+
         /// DAG definition file (JSON)
         #[arg(short, long)]
         file: Option<String>,
     },
-    
+
     /// Run a DAG workflow
     Run {
         /// DAG ID
         id: String,
     },
-    
+
     /// Get DAG status
     Status {
         /// DAG ID
@@ -252,21 +252,21 @@ enum DagCommands {
 enum ScheduleCommands {
     /// List all scheduled tasks
     List,
-    
+
     /// Add a new scheduled task
     Add {
         /// Schedule name
         name: String,
-        
+
         /// Cron expression
         #[arg(short, long)]
         cron: String,
-        
+
         /// Task type
         #[arg(short, long)]
         task_type: String,
     },
-    
+
     /// Remove a scheduled task
     Remove {
         /// Schedule ID
@@ -280,33 +280,33 @@ enum MemoryCommands {
     Store {
         /// Memory content
         content: String,
-        
+
         /// Importance (0.0-1.0)
         #[arg(short, long, default_value = "0.5")]
         importance: f32,
-        
+
         /// Tags (comma-separated)
         #[arg(short, long)]
         tags: Option<String>,
     },
-    
+
     /// Search memories
     Search {
         /// Search query
         query: String,
-        
+
         /// Max results
         #[arg(short, long, default_value = "10")]
         limit: usize,
     },
-    
+
     /// List all memories
     List {
         /// Max results
         #[arg(short, long, default_value = "50")]
         limit: usize,
     },
-    
+
     /// Delete a memory
     Delete {
         /// Memory ID
@@ -318,14 +318,14 @@ enum MemoryCommands {
 enum FederationCommands {
     /// Show federation status
     Status,
-    
+
     /// Sync memories to federation nodes
     Sync {
         /// Target node ID (optional, syncs to all if not specified)
         #[arg(short, long)]
         node: Option<String>,
     },
-    
+
     /// List federation nodes
     Nodes,
 }
@@ -337,15 +337,15 @@ enum AuditCommands {
         /// Event type filter
         #[arg(short, long)]
         event_type: Option<String>,
-        
+
         /// Max results
         #[arg(short, long, default_value = "50")]
         limit: usize,
     },
-    
+
     /// Show audit statistics
     Stats,
-    
+
     /// Export audit logs
     Export {
         /// Output file
@@ -358,16 +358,16 @@ enum AuditCommands {
 enum WatchdogCommands {
     /// Show watchdog status
     Status,
-    
+
     /// Show lease status
     Lease {
         /// Lease ID (optional)
         id: Option<String>,
     },
-    
+
     /// Run health check
     Check,
-    
+
     /// Show recovery actions
     Recovery,
 }
@@ -376,16 +376,16 @@ enum WatchdogCommands {
 enum StrategyCommands {
     /// List available strategies
     List,
-    
+
     /// Get current strategy
     Get,
-    
+
     /// Set strategy
     Set {
         /// Strategy name (smart, time_decay, semantic_cluster)
         name: String,
     },
-    
+
     /// Show strategy config
     Config,
 }
@@ -496,7 +496,7 @@ enum SkillCommands {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-    
+
     // 初始化日志
     if cli.verbose {
         tracing_subscriber::fmt()
@@ -507,14 +507,14 @@ async fn main() -> anyhow::Result<()> {
             .with_max_level(tracing::Level::INFO)
             .init();
     }
-    
+
     // 加载配置
     let mut config = if let Some(config_path) = &cli.config {
         newclaw::config::Config::from_file(config_path)?
     } else {
         newclaw::config::Config::load()?
     };
-    
+
     // 应用命令行覆盖
     if let Some(provider) = &cli.provider {
         config.llm.provider = provider.clone();
@@ -522,27 +522,27 @@ async fn main() -> anyhow::Result<()> {
     if let Some(model) = &cli.model {
         config.llm.model = model.clone();
     }
-    
+
     // 执行命令
     match cli.command {
         None | Some(Commands::Chat) => {
             // 默认：交互模式
             newclaw::cli::run_cli().await?;
         }
-        
+
         Some(Commands::Gateway { port, host }) => {
             config.gateway.port = port;
             config.gateway.host = host;
-            
+
             println!("🌐 Starting NewClaw Gateway...");
             println!("   Provider: {}", config.llm.provider);
             println!("   Model:    {}", config.get_model());
             println!("   Address:  {}:{}", config.gateway.host, config.gateway.port);
             println!();
-            
+
             newclaw::gateway::run_server(config).await?;
         }
-        
+
         Some(Commands::Dashboard { port, host }) => {
             let dashboard_config = newclaw::dashboard::DashboardConfig {
                 enabled: true,
@@ -558,7 +558,7 @@ async fn main() -> anyhow::Result<()> {
 
             newclaw::dashboard::start_dashboard(dashboard_config).await?;
         }
-        
+
         Some(Commands::PairCode) => {
             // 调用 Dashboard API 获取配对码
             // 注意：CLI 命令是 `pair-code`（kebab-case）
@@ -582,10 +582,10 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        
+
         Some(Commands::Config { output }) => {
             let content = newclaw::config::generate_example_config();
-            
+
             if let Some(path) = output {
                 std::fs::write(&path, &content)?;
                 println!("✅ Configuration written to: {}", path);
@@ -593,7 +593,7 @@ async fn main() -> anyhow::Result<()> {
                 println!("{}", content);
             }
         }
-        
+
         Some(Commands::Plugin { action }) => {
             match action {
                 None | Some(PluginCommands::List) => {
@@ -613,7 +613,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        
+
         Some(Commands::Tools { action }) => {
             match action {
                 None | Some(ToolCommands::List) => {
@@ -648,44 +648,50 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        
+
         // ============== v0.7.0 新增命令处理 ==============
-        
+
         Some(Commands::Task { action }) => {
             handle_task_command(action).await?;
         }
-        
+
         Some(Commands::Dag { action }) => {
             handle_dag_command(action).await?;
         }
-        
+
         Some(Commands::Schedule { action }) => {
             handle_schedule_command(action).await?;
         }
-        
+
         Some(Commands::Memory { action }) => {
             handle_memory_command(action).await?;
         }
-        
+
         Some(Commands::Federation { action }) => {
             handle_federation_command(action).await?;
         }
-        
+
         Some(Commands::Audit { action }) => {
             handle_audit_command(action).await?;
         }
-        
+
         Some(Commands::Watchdog { action }) => {
             handle_watchdog_command(action).await?;
         }
-        
+
         Some(Commands::Strategy { action }) => {
             handle_strategy_command(action).await?;
         }
-        
+
         Some(Commands::Session { action }) => {
             handle_session_command(action).await?;
         }
+
+        Some(Commands::Skill { action }) => {
+            use newclaw::cli::skill::handle_skill_command;
+            handle_skill_command(action).await?;
+        }
+
     }
 
     Ok(())
@@ -736,21 +742,21 @@ async fn get_pair_code_from_api() -> anyhow::Result<newclaw::dashboard::auth::Pa
 /// 调用 Dashboard API 的通用函数
 async fn call_dashboard_api(method: &str, path: &str, body: Option<serde_json::Value>) -> anyhow::Result<serde_json::Value> {
     use reqwest::Client;
-    
+
     let client = Client::new();
     let url = format!("http://localhost:8080{}", path);
-    
+
     let resp = match method {
         "GET" => client.get(&url).send().await?,
         "POST" => client.post(&url).json(&body).send().await?,
         "DELETE" => client.delete(&url).send().await?,
         _ => anyhow::bail!("Unsupported HTTP method: {}", method),
     };
-    
+
     if !resp.status().is_success() {
         anyhow::bail!("API error: {}", resp.status());
     }
-    
+
     Ok(resp.json().await?)
 }
 
@@ -760,15 +766,15 @@ async fn handle_task_command(action: TaskCommands) -> anyhow::Result<()> {
         TaskCommands::List => {
             let data = call_dashboard_api("GET", "/api/tasks", None).await?;
             let tasks = data["tasks"].as_array().cloned().unwrap_or_default();
-            
+
             println!("📋 Tasks ({} total):", tasks.len());
             println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-            
+
             if tasks.is_empty() {
                 println!("  No tasks found");
             } else {
                 for task in tasks {
-                    println!("  [{}] {} - {}", 
+                    println!("  [{}] {} - {}",
                         task["status"].as_str().unwrap_or("unknown"),
                         task["id"].as_str().unwrap_or("?").chars().take(8).collect::<String>(),
                         task["name"].as_str().unwrap_or("?")
@@ -835,7 +841,7 @@ async fn handle_schedule_command(action: ScheduleCommands) -> anyhow::Result<()>
             let schedules = data["schedules"].as_array().cloned().unwrap_or_default();
             println!("⏰ Schedules ({} total):", schedules.len());
             for s in schedules {
-                println!("  [{}] {} - {}", 
+                println!("  [{}] {} - {}",
                     if s["enabled"].as_bool().unwrap_or(false) { "ON" } else { "OFF" },
                     s["name"].as_str().unwrap_or("?"),
                     s["cron_expression"].as_str().unwrap_or("?")
@@ -883,7 +889,7 @@ async fn handle_memory_command(action: MemoryCommands) -> anyhow::Result<()> {
             let memories = data["memories"].as_array().cloned().unwrap_or_default();
             println!("📝 Memories ({} total):", memories.len());
             for m in memories {
-                println!("  [{}] {}", 
+                println!("  [{}] {}",
                     m["importance"].as_f64().unwrap_or(0.5),
                     m["content"].as_str().unwrap_or("?").chars().take(40).collect::<String>()
                 );
@@ -918,7 +924,7 @@ async fn handle_federation_command(action: FederationCommands) -> anyhow::Result
             let nodes = data["nodes"].as_array().cloned().unwrap_or_default();
             println!("🌐 Federation Nodes ({} total):", nodes.len());
             for n in nodes {
-                println!("  [{}] {} - {}ms", 
+                println!("  [{}] {} - {}ms",
                     n["status"].as_str().unwrap_or("?"),
                     n["name"].as_str().unwrap_or("?"),
                     n["latency_ms"].as_u64().unwrap_or(0)
@@ -941,7 +947,7 @@ async fn handle_audit_command(action: AuditCommands) -> anyhow::Result<()> {
             let logs = data["logs"].as_array().cloned().unwrap_or_default();
             println!("📋 Audit Logs ({} total):", logs.len());
             for log in logs {
-                println!("  [{}] {} - {}", 
+                println!("  [{}] {} - {}",
                     log["event_type"].as_str().unwrap_or("?"),
                     log["action"].as_str().unwrap_or("?"),
                     log["created_at"].as_str().unwrap_or("?")

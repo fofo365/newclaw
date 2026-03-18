@@ -132,10 +132,23 @@ impl FeishuClient {
                 if user_token.starts_with("u-") {
                     return Ok(user_token.clone());
                 }
-                tracing::warn!("配置的 user_access_token 格式不正确（应以 u- 开头），实际: {}",
+                // 如果是 t- 开头，虽然格式不正确，但尝试使用（可能是旧版配置）
+                if user_token.starts_with("t-") {
+                    tracing::warn!("⚠️  配置的 user_access_token 格式不正确（应以 u- 开头，实际是 t-），将尝试使用");
+                    tracing::warn!("⚠️  这是租户访问令牌，不是用户访问令牌，某些操作可能失败");
+                    return Ok(user_token.clone());
+                }
+                tracing::warn!("⚠️  配置的 user_access_token 格式不正确（应以 u- 开头），实际: {}",
                     if user_token.len() > 10 { &user_token[..10] } else { user_token });
             }
-            return Err(anyhow::anyhow!("需要用户级访问令牌（user_access_token），但未配置或格式不正确"));
+            // 用户级令牌不可用时，尝试使用租户令牌（降级处理）
+            if let Some(tenant_token) = &self.config.tenant_access_token {
+                tracing::warn!("⚠️  用户级访问令牌不可用，将使用租户访问令牌（某些操作可能受限）");
+                if tenant_token.starts_with("t-") {
+                    return Ok(tenant_token.clone());
+                }
+            }
+            return Err(anyhow::anyhow!("需要用户级访问令牌（user_access_token，应以 u- 开头），但未配置或格式不正确\n\n获取方式：\n1. 在飞书开放平台创建应用\n2. 配置 OAuth 权限：docs:doc, docs:doc:readonly\n3. 用户授权后获取 user_access_token"));
         }
 
         // 优先使用配置的租户访问令牌
@@ -302,40 +315,12 @@ impl FeishuClient {
             // 等待文档初始化完成
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             
-            // 创建初始块
-            let initial_block = vec![
-                serde_json::json!({
-                    "block_type": 2,
-                    "text_run": {
-                        "content": title
-                    }
-                })
-            ];
-            
-            let token = self.get_access_token_with_type(true).await?;
-            let url = format!("{}/docx/v1/documents/{}/blocks/doc", self.config.base_url, doc_id);
-            
-            let response = self.http_client
-                .patch(&url)
-                .header("Authorization", format!("Bearer {}", token))
-                .json(&serde_json::json!({
-                    "blocks": initial_block,
-                    "index_type": 0
-                }))
-                .send()
-                .await?;
-            
-            if !response.status().is_success() {
-                tracing::warn!("创建初始块失败: {}", response.status());
-            }
-            
             // 然后更新文档内容
             match self.update_doc(&doc_id, markdown, None).await {
                 Ok(_) => Ok(doc_id),
                 Err(e) => {
-                    tracing::warn!("创建文档后更新内容失败: {}", e);
-                    // 即使更新失败，也返回文档 ID（因为文档已创建）
-                    Ok(doc_id)
+                    tracing::error!("❌ 创建文档后更新内容失败: {}", e);
+                    Err(anyhow::anyhow!("文档创建成功，但添加内容失败: {}\n\n可能原因：\n1. user_access_token 格式不正确（当前为 t- 开头，应为 u- 开头）\n2. 缺少 OAuth 权限\n\n解决方法：\n1. 获取用户级访问令牌（u- 开头）\n2. 在配置文件中更新 user_access_token\n3. 或者使用 update 命令手动添加内容", e))
                 }
             }
         } else {
