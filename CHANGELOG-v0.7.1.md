@@ -2,6 +2,28 @@
 
 ## [0.7.1] - 规划中
 
+### 🚨 严重问题：运行时硬编码依赖 OpenClaw 目录
+
+**Issue #003** - P0 架构缺陷（2026-03-18 发现）
+
+**问题位置**：
+- `src/skill/loader.rs:56-57` - 硬编码 `/root/.openclaw/workspace/skills`
+- `src/feishu_websocket/tools.rs:97` - 硬编码 `/root/.openclaw/workspace-dev`
+
+**严重性**：
+- NewClaw 运行时依赖 OpenClaw 目录
+- 两个系统耦合，违背独立性原则
+- 修改 OpenClaw 会影响 NewClaw
+
+**状态**：🔴 待修复（另一智能体处理中）
+
+**教训**：
+- 所有路径必须从配置文件读取
+- 代码评审必须检查硬编码路径
+- 新增 `CODE_REVIEW_CHECKLIST.md` 防止复发
+
+---
+
 ### 核心问题（来自飞书通道事件）
 
 飞书通道AI在遇到"持续发送开发进度报告"问题时，采取了极端措施（删除所有记忆），而不是正确诊断和解决问题。
