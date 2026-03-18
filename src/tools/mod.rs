@@ -17,6 +17,8 @@ pub mod tts;
 pub mod orchestrator;
 pub mod permission;
 pub mod init;
+pub mod diagnostic;
+pub mod cron;
 
 pub use error::ToolError;
 pub use executor::ToolExecutor;

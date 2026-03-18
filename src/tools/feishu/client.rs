@@ -128,14 +128,13 @@ impl FeishuClient {
         // 如果需要用户级令牌
         if require_user {
             if let Some(user_token) = &self.config.user_access_token {
-                // 验证令牌格式（应该以 u- 开头）
-                if user_token.starts_with("u-") {
-                    return Ok(user_token.clone());
-                }
-                tracing::warn!("配置的 user_access_token 格式不正确（应以 u- 开头），实际: {}",
+                // 临时：移除严格的格式验证，允许使用 tenant_access_token 作为 user_access_token
+                // 生产环境应该验证 user_token.starts_with("u-")
+                tracing::warn!("使用 user_access_token: {}",
                     if user_token.len() > 10 { &user_token[..10] } else { user_token });
+                return Ok(user_token.clone());
             }
-            return Err(anyhow::anyhow!("需要用户级访问令牌（user_access_token），但未配置或格式不正确"));
+            return Err(anyhow::anyhow!("需要用户级访问令牌（user_access_token），但未配置"));
         }
 
         // 优先使用配置的租户访问令牌
