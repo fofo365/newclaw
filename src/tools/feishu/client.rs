@@ -346,28 +346,30 @@ impl FeishuClient {
     /// 更新文档（需要用户级令牌）
     pub async fn update_doc(&self, doc_token: &str, markdown: &str, mode: Option<String>) -> Result<Value> {
         let token = self.get_access_token_with_type(true).await?;
-        let url = format!("{}/docx/v1/documents/{}/blocks/doc", self.config.base_url, doc_token);
         
         // 将 Markdown 转换为文档块
         let blocks = self.markdown_to_blocks(markdown)?;
         
-        // 根据模式确定 index_type
-        // 0: 覆盖整个文档, 1: 追加
-        let index_type = match mode.as_deref() {
-            Some(m) if m == "append" => "1",
-            Some(_) => "0",
-            None => "0",
-        };
+        if blocks.is_empty() {
+            return Ok(json!({
+                "status": "success",
+                "action": "update",
+                "doc_token": doc_token,
+                "message": "No content to update"
+            }));
+        }
         
-        let body = serde_json::json!({
-            "blocks": blocks,
-            "index_type": index_type
-        });
-
+        // 使用 batchCreate API
+        let url = format!("{}/docx/v1/documents/{}/blocks/batchCreate", self.config.base_url, doc_token);
+        
+        // 每个块对象已经是正确的格式（包含 children 和 index_type）
+        // 我们需要取出第一个块的 children 数组
+        let block_data = &blocks[0];
+        
         let response = self.http_client
-            .patch(&url)
+            .post(&url)
             .header("Authorization", format!("Bearer {}", token))
-            .json(&body)
+            .json(block_data)
             .send()
             .await?;
 
@@ -388,7 +390,6 @@ impl FeishuClient {
             "action": "update",
             "doc_token": doc_token,
             "mode": mode.unwrap_or_else(|| "overwrite".to_string()),
-            "index_type": index_type,
             "message": "Document updated successfully"
         }))
     }
@@ -485,57 +486,29 @@ impl FeishuClient {
 
     /// 将 Markdown 转换为文档块
     fn markdown_to_blocks(&self, markdown: &str) -> Result<Vec<serde_json::Value>> {
-        let mut blocks = Vec::new();
-        let mut in_code_block = false;
-        let mut code_content = String::new();
+        let mut children = Vec::new();
+        let mut lines: Vec<&str> = markdown.lines().collect();
+        let mut i = 0;
         
-        for line in markdown.lines() {
-            // 处理代码块
-            if line.starts_with("```") {
-                if in_code_block {
-                    // 代码块结束
-                    if !code_content.is_empty() {
-                        blocks.push(serde_json::json!({
-                            "block_type": 32,
-                            "code": {
-                                "style": "plain",
-                                "elements": [{
-                                    "text_run": {
-                                        "content": code_content
-                                    }
-                                }]
-                            }
-                        }));
-                    }
-                    code_content.clear();
-                    in_code_block = false;
-                } else {
-                    in_code_block = true;
-                }
-                continue;
-            }
-            
-            if in_code_block {
-                code_content.push_str(line);
-                code_content.push('\n');
-                continue;
-            }
+        while i < lines.len() {
+            let line = lines[i].trim();
             
             // 跳过空行
-            if line.trim().is_empty() {
+            if line.is_empty() {
+                i += 1;
                 continue;
             }
             
-            // 简化的 Markdown 解析
-            let block = if line.starts_with("# ") {
+            let block = if line.starts_with("# ") || line.starts_with("## ") || line.starts_with("### ") {
                 // 标题
                 let level = if line.starts_with("### ") { 3 } else if line.starts_with("## ") { 2 } else { 1 };
-                let content = &line[level+1..].trim();
+                let content = line[level..].trim();
                 serde_json::json!({
-                    "block_type": 1,
+                    "type": "heading",
                     "heading": {
                         "level": level,
                         "elements": [{
+                            "type": "text_run",
                             "text_run": {
                                 "content": content
                             }
@@ -544,35 +517,87 @@ impl FeishuClient {
                 })
             } else if line.starts_with("- ") || line.starts_with("* ") {
                 // 列表
-                let content = &line[2..].trim();
+                let content = line[2..].trim();
                 serde_json::json!({
-                    "block_type": 3,
+                    "type": "bullet",
                     "bullet": {
                         "elements": [{
+                            "type": "text_run",
                             "text_run": {
                                 "content": content
                             }
                         }]
                     }
                 })
-            } else {
-                // 普通文本
+            } else if line.starts_with("```") {
+                // 代码块
+                let mut code_content = String::new();
+                i += 1;
+                
+                while i < lines.len() && !lines[i].trim().starts_with("```") {
+                    code_content.push_str(lines[i]);
+                    code_content.push('\n');
+                    i += 1;
+                }
+                
+                // 移除最后一个换行
+                code_content.pop();
+                
                 serde_json::json!({
-                    "block_type": 2,
-                    "text": {
+                    "type": "code",
+                    "code": {
+                        "style": {
+                            "language": "plain"
+                        },
                         "elements": [{
+                            "type": "text_run",
                             "text_run": {
-                                "content": line
+                                "content": code_content
+                            }
+                        }]
+                    }
+                })
+            } else {
+                // 普通段落
+                let mut paragraph_content = line.to_string();
+                
+                // 合并同一行块的后续文本行
+                while i + 1 < lines.len() {
+                    let next_line = lines[i + 1].trim();
+                    if next_line.is_empty() || 
+                       next_line.starts_with("# ") || 
+                       next_line.starts_with("- ") || 
+                       next_line.starts_with("* ") || 
+                       next_line.starts_with("```") {
+                        break;
+                    }
+                    paragraph_content.push_str(next_line);
+                    paragraph_content.push(' ');
+                    i += 1;
+                }
+                
+                serde_json::json!({
+                    "type": "paragraph",
+                    "paragraph": {
+                        "elements": [{
+                            "type": "text_run",
+                            "text_run": {
+                                "content": paragraph_content.trim()
                             }
                         }]
                     }
                 })
             };
             
-            blocks.push(block);
+            children.push(block);
+            i += 1;
         }
         
-        Ok(blocks)
+        // 包装成批量创建格式
+        Ok(vec![serde_json::json!({
+            "children": children,
+            "index_type": 0
+        })])
     }
 
     /// 将文档块转换为 Markdown
