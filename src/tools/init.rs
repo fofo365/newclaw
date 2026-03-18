@@ -22,6 +22,7 @@ use crate::tools::{
     safety::SafetyTool,
     channel_permission::ChannelPermissionTool,
     memory_archive::MemoryArchiveTool,
+    report::ReportTool,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -153,6 +154,10 @@ pub async fn init_builtin_tools_with_permissions(
     
     // 记忆归档恢复工具
     registry.register(MemoryArchiveTool::new()).await?;
+    tool_count += 1;
+    
+    // 诊断报告生成工具
+    registry.register(ReportTool::new()).await?;
     tool_count += 1;
 
     // ==================== 权限和配置工具 ====================
