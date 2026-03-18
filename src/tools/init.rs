@@ -18,6 +18,7 @@ use crate::tools::{
     // 新增工具
     diagnostic::DiagnosticTool,
     cron::CronTool,
+    workflow::WorkflowTool,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -133,6 +134,10 @@ pub async fn init_builtin_tools_with_permissions(
     
     // Cron 任务管理工具
     registry.register(CronTool::new()).await?;
+    tool_count += 1;
+    
+    // 诊断工作流工具
+    registry.register(WorkflowTool::new()).await?;
     tool_count += 1;
 
     // ==================== 权限和配置工具 ====================

@@ -19,6 +19,7 @@ pub mod permission;
 pub mod init;
 pub mod diagnostic;
 pub mod cron;
+pub mod workflow;
 
 pub use error::ToolError;
 pub use executor::ToolExecutor;
