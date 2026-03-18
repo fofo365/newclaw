@@ -22,6 +22,7 @@ pub mod cron;
 pub mod workflow;
 pub mod safety;
 pub mod channel_permission;
+pub mod memory_archive;
 
 pub use error::ToolError;
 pub use executor::ToolExecutor;
