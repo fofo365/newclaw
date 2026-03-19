@@ -1,0 +1,244 @@
+syntax = "proto3";
+
+package newclaw.watchdog.v1;
+
+// 心跳服务 - 智慧主控向核心主控上报
+service HeartbeatService {
+    // 智慧主控上报心跳
+    rpc ReportHeartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+    // 核心主控查询心跳状态
+    rpc GetHeartbeatStatus(GetHeartbeatRequest) returns (HeartbeatStatusResponse);
+}
+
+// 租约服务 - 防止脑裂
+service LeaseService {
+    // 申请租约
+    rpc AcquireLease(AcquireLeaseRequest) returns (LeaseResponse);
+    // 续约
+    rpc RenewLease(RenewLeaseRequest) returns (LeaseResponse);
+    // 释放租约
+    rpc ReleaseLease(ReleaseLeaseRequest) returns (ReleaseLeaseResponse);
+    // 查询租约状态
+    rpc GetLeaseStatus(GetLeaseRequest) returns (LeaseResponse);
+}
+
+// 恢复服务 - 故障恢复管理
+service RecoveryService {
+    // 触发恢复（核心主控内部调用）
+    rpc TriggerRecovery(TriggerRecoveryRequest) returns (RecoveryResponse);
+    // 查询恢复状态
+    rpc GetRecoveryStatus(GetRecoveryRequest) returns (RecoveryStatus);
+    // 确认恢复完成（人工介入后）
+    rpc AcknowledgeRecovery(AcknowledgeRecoveryRequest) returns (AcknowledgeRecoveryResponse);
+}
+
+// 健康检查服务 - 核心主控主动探测
+service HealthCheckService {
+    // 执行健康检查
+    rpc CheckHealth(CheckHealthRequest) returns (CheckHealthResponse);
+    // 执行就绪检查
+    rpc CheckReady(CheckReadyRequest) returns (CheckReadyResponse);
+}
+
+// ========== 消息定义 ==========
+
+// 心跳请求
+message HeartbeatRequest {
+    string lease_id = 1;              // 租约 ID
+    int64 timestamp = 2;              // 时间戳（毫秒）
+    HealthStatus health = 3;          // 健康状态
+    SystemMetrics metrics = 4;        // 系统指标
+    repeated string recent_errors = 5; // 最近错误列表
+    string component = 6;             // 组件名称（smart_controller）
+}
+
+// 心跳响应
+message HeartbeatResponse {
+    bool acknowledged = 1;            // 是否确认
+    int64 server_time = 2;            // 服务器时间
+    bool lease_valid = 3;             // 租约是否有效
+    string message = 4;               // 附加消息
+}
+
+// 健康状态
+message HealthStatus {
+    enum Status {
+        UNKNOWN = 0;
+        HEALTHY = 1;
+        DEGRADED = 2;
+        UNHEALTHY = 3;
+    }
+    Status status = 1;                // 状态
+    string message = 2;               // 详细消息
+    repeated string checks = 3;       // 检查项列表
+}
+
+// 系统指标
+message SystemMetrics {
+    uint64 memory_mb = 1;             // 内存使用（MB）
+    float cpu_percent = 2;            // CPU 使用率（%）
+    uint64 active_sessions = 3;       // 活跃会话数
+    uint64 request_rate = 4;          // 请求速率（req/s）
+    uint64 error_rate = 5;            // 错误率（%）
+    uint64 uptime_secs = 6;           // 运行时间（秒）
+    uint64 goroutines = 7;            // Goroutine 数量（如果有）
+    uint64 open_fds = 8;              // 打开文件描述符
+}
+
+// 获取心跳状态请求
+message GetHeartbeatRequest {
+    string component = 1;             // 组件名称
+}
+
+// 心跳状态响应
+message HeartbeatStatusResponse {
+    bool available = 1;               // 是否可用
+    HealthStatus health = 2;          // 健康状态
+    int64 last_heartbeat = 3;         // 最后心跳时间
+    uint32 consecutive_failures = 4;  // 连续失败次数
+}
+
+// ========== 租约消息 ==========
+
+// 申请租约请求
+message AcquireLeaseRequest {
+    string holder = 1;                // 持有者标识
+    int64 duration_secs = 2;          // 租约期限（秒）
+}
+
+// 续约请求
+message RenewLeaseRequest {
+    string lease_id = 1;              // 租约 ID
+    int64 duration_secs = 2;          // 延长期限（秒）
+}
+
+// 释放租约请求
+message ReleaseLeaseRequest {
+    string lease_id = 1;              // 租约 ID
+    string holder = 2;                // 持有者标识
+}
+
+// 租约响应
+message LeaseResponse {
+    bool success = 1;                 // 是否成功
+    string lease_id = 2;              // 租约 ID
+    string holder = 3;                // 持有者
+    int64 created_at = 4;             // 创建时间
+    int64 expires_at = 5;             // 过期时间
+    int64 last_renewed = 6;           // 最后续约时间
+    string error = 7;                 // 错误消息
+}
+
+// 释放租约响应
+message ReleaseLeaseResponse {
+    bool success = 1;                 // 是否成功
+    string message = 2;               // 消息
+}
+
+// 获取租约状态请求
+message GetLeaseRequest {
+    string lease_id = 1;              // 租约 ID（可选，为空则返回当前租约）
+}
+
+// ========== 恢复消息 ==========
+
+// 触发恢复请求
+message TriggerRecoveryRequest {
+    string component = 1;             // 组件名称
+    HealthStatus health_status = 2;   // 健康状态
+    RecoveryLevel level = 3;          // 恢复级别
+    repeated string actions = 4;      // 恢复动作列表
+}
+
+// 恢复级别
+enum RecoveryLevel {
+    RECOVERY_LEVEL_UNKNOWN = 0;
+    L1_QUICK_FIX = 1;                 // L1 - 快速修复
+    L2_AI_DIAGNOSIS = 2;              // L2 - AI 诊断
+    L3_HUMAN_INTERVENTION = 3;        // L3 - 人工介入
+}
+
+// 恢复响应
+message RecoveryResponse {
+    bool accepted = 1;                // 是否接受
+    string recovery_id = 2;           // 恢复 ID
+    RecoveryLevel level = 3;          // 恢复级别
+    int64 estimated_duration = 4;     // 预计耗时（秒）
+}
+
+// 恢复状态
+message RecoveryStatus {
+    string recovery_id = 1;           // 恢复 ID
+    RecoveryLevel level = 2;          // 恢复级别
+    RecoveryState state = 3;          // 恢复状态
+    int64 started_at = 4;             // 开始时间
+    int64 completed_at = 5;           // 完成时间
+    repeated RecoveryAction actions = 6; // 动作列表
+    string result = 7;                // 结果消息
+}
+
+// 恢复状态枚举
+enum RecoveryState {
+    RECOVERY_STATE_UNKNOWN = 0;
+    PENDING = 1;                      // 等待中
+    IN_PROGRESS = 2;                  // 执行中
+    SUCCEEDED = 3;                    // 成功
+    FAILED = 4;                       // 失败
+    CANCELLED = 5;                    // 已取消
+}
+
+// 恢复动作
+message RecoveryAction {
+    string name = 1;                  // 动作名称
+    string description = 2;           // 描述
+    RecoveryState state = 3;          // 状态
+    int64 started_at = 4;             // 开始时间
+    int64 completed_at = 5;           // 完成时间
+    string output = 6;                // 输出日志
+    string error = 7;                 // 错误消息
+}
+
+// 获取恢复状态请求
+message GetRecoveryRequest {
+    string recovery_id = 1;           // 恢复 ID
+}
+
+// 确认恢复请求
+message AcknowledgeRecoveryRequest {
+    string recovery_id = 1;           // 恢复 ID
+    string acknowledged_by = 2;       // 确认人
+    string notes = 3;                 // 备注
+}
+
+// 确认恢复响应
+message AcknowledgeRecoveryResponse {
+    bool success = 1;                 // 是否成功
+    string message = 2;               // 消息
+}
+
+// ========== 健康检查消息 ==========
+
+// 健康检查请求
+message CheckHealthRequest {
+    string component = 1;             // 组件名称（可选）
+    bool deep = 2;                    // 是否深度检查
+}
+
+// 健康检查响应
+message CheckHealthResponse {
+    HealthStatus status = 1;          // 健康状态
+    map<string, HealthStatus> components = 2; // 组件状态
+    int64 checked_at = 3;             // 检查时间
+}
+
+// 就绪检查请求
+message CheckReadyRequest {
+    string component = 1;             // 组件名称（可选）
+}
+
+// 就绪检查响应
+message CheckReadyResponse {
+    bool ready = 1;                   // 是否就绪
+    map<string, bool> checks = 2;     // 检查项
+    string message = 3;               // 消息
+}

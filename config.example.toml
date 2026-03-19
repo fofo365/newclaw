@@ -1,0 +1,61 @@
+# NewClaw v0.3.1 Configuration
+# 
+# Copy this file to:
+#   - ./config.toml (current directory)
+#   - ~/.config/newclaw/config.toml (user config)
+#
+# Environment variables take precedence over this file:
+#   - LLM_PROVIDER
+#   - LLM_MODEL
+#   - OPENAI_API_KEY
+#   - ANTHROPIC_API_KEY
+#   - GLM_API_KEY
+
+[llm]
+# Provider: openai, claude, glm
+provider = "openai"
+
+# Default model (provider-specific)
+model = "gpt-4o-mini"
+
+# Temperature (0.0 - 2.0)
+temperature = 0.7
+
+# Maximum tokens
+max_tokens = 4096
+
+# OpenAI Configuration
+[llm.openai]
+# API Key (or set OPENAI_API_KEY environment variable)
+# api_key = "sk-..."
+
+# Custom base URL (optional, for proxies)
+# base_url = "https://api.openai.com/v1"
+
+# Claude Configuration
+[llm.claude]
+# API Key (or set ANTHROPIC_API_KEY environment variable)
+# api_key = "sk-ant-..."
+
+# Custom base URL (optional)
+# base_url = "https://api.anthropic.com/v1"
+
+# GLM Configuration
+[llm.glm]
+# API Key (or set GLM_API_KEY environment variable)
+# api_key = "..."
+
+# Custom base URL (optional)
+# base_url = "https://open.bigmodel.cn/api/paas/v4"
+
+[gateway]
+# Gateway server configuration
+host = "0.0.0.0"
+port = 3000
+
+[tools]
+# Enabled tools (empty = all enabled)
+enabled = ["read", "write", "edit", "exec", "search"]
+
+# Tool execution timeout (seconds)
+timeout_secs = 60

@@ -1,0 +1,50 @@
+# NewClaw Default Configuration
+# v0.5.4
+
+[server]
+host = "0.0.0.0"
+port = 3000
+metrics_port = 9090
+
+[logging]
+level = "info"
+format = "json"
+
+[embedding]
+enabled = true
+model = "text-embedding-3-small"
+dimensions = 1536
+batch_size = 10
+cache_enabled = true
+cache_ttl_secs = 86400
+
+[retrieval]
+enabled = true
+top_k = 5
+similarity_threshold = 0.5
+hybrid_enabled = true
+semantic_weight = 0.7
+keyword_weight = 0.3
+
+[compression]
+enabled = true
+target_ratio = 0.5
+max_tokens = 4000
+keep_recent_count = 3
+keep_system_messages = true
+
+[storage]
+db_path = "/var/lib/newclaw/context.db"
+vector_store_type = "memory"
+max_storage_mb = 500
+auto_cleanup = true
+cleanup_interval_secs = 3600
+
+[redis]
+enabled = false
+url = "redis://localhost:6379"
+
+[security]
+rate_limit_enabled = true
+rate_limit_max_requests = 100
+rate_limit_window_secs = 60

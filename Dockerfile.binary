@@ -1,0 +1,40 @@
+# NewClaw Production Dockerfile - 使用预编译二进制
+FROM debian:bookworm-slim
+
+WORKDIR /app
+
+# 安装运行时依赖
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# 创建非 root 用户
+RUN useradd -r -s /bin/false newclaw
+
+# 复制所有二进制文件
+COPY newclaw-bin/0.7.0/newclaw /usr/local/bin/newclaw
+COPY newclaw-bin/0.7.0/feishu-connect /usr/local/bin/feishu-connect
+RUN chmod +x /usr/local/bin/newclaw /usr/local/bin/feishu-connect
+
+# 创建目录
+RUN mkdir -p /var/lib/newclaw /var/log/newclaw && \
+    chown -R newclaw:newclaw /var/lib/newclaw /var/log/newclaw
+
+# 切换到非 root 用户
+USER newclaw
+
+# 暴露端口
+EXPOSE 3000 9090
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3000/health || exit 1
+
+# 设置环境
+ENV RUST_LOG=info
+ENV NEWCLAW_CONFIG=/etc/newclaw/config.toml
+
+# 启动
+CMD ["newclaw", "gateway"]

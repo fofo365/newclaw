@@ -1,0 +1,31 @@
+# NewClaw Workspace - 工作空间配置
+#
+# workspace/ 目录是 NewClaw 的核心数据存储位置
+# 包含所有记忆、用户信息、配置等
+#
+# 结构说明：
+# ├── MEMORY.md        # 长期记忆（重要决策、项目信息、用户偏好）
+# ├── SOUL.md          # Agent 人格定义（行为准则、价值观）
+# ├── USER.md          # 用户信息（联系方式、偏好、时区）
+# ├── IDENTITY.md      # 身份定义（名称、类型、版本）
+# ├── TOOLS.md         # 工具配置（API 密钥、端点、别名）
+# ├── workspace.json   # 工作空间元数据（版本、创建时间、校验和）
+# └── memory/          # 每日记录目录
+#     └── YYYY-MM-DD.md
+#
+# 特性：
+# 1. 支持打包转移（tar.gz）
+# 2. 支持跨设备恢复
+# 3. 支持版本控制
+# 4. 支持校验和验证
+#
+# 使用方法：
+# - 打包：newclaw workspace export
+# - 恢复：newclaw workspace import <archive.tar.gz>
+# - 校验：newclaw workspace verify
+
+name: "newclaw-workspace"
+version: "0.7.0"
+created_at: "2026-03-16T15:49:00+08:00"
+owner: "王老吉"
+description: "NewClaw v0.7.0 工作空间"

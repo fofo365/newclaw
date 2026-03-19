@@ -1,0 +1,40 @@
+# Build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+
+# Cargo lock for library
+# Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+*.env
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Test artifacts
+test-results/
+coverage/
+
+# Backup files
+*.backup
+*.backup.*

@@ -1,0 +1,33 @@
+[llm]
+provider = "glm"
+model = "glm-4"
+temperature = 0.699999988079071
+max_tokens = 4096
+
+[llm.openai]
+
+[llm.claude]
+
+[llm.glm]
+api_key = "1d19a64c20074ec3be505e3bcb9c322f.uBJirWlBOYFQhste"
+region = "international"
+provider_type = "glm"
+
+[gateway]
+host = "0.0.0.0"
+port = 3000
+enable_watchdog = false
+watchdog_addr = "http://127.0.0.1:50051"
+
+[tools]
+enabled = []
+timeout_secs = 0
+
+[feishu.accounts.default]
+app_id = "cli_****"
+app_secret = "zYNommBXUXSDzUaULXUfMhBJKjK6LyAZ"
+encrypt_key = ""
+verification_token = ""
+enabled = true
+connection_mode = "websocket"
+domain = "feishu"

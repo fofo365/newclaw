@@ -1,0 +1,24 @@
+[Unit]
+Description=NewClaw Gateway Server v0.7.0
+Documentation=https://github.com/fofo365/newclaw
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/var/lib/newclaw
+EnvironmentFile=/etc/default/newclaw
+ExecStart=/usr/local/bin/newclaw gateway --port 3000 --host 0.0.0.0
+Restart=always
+RestartSec=10
+
+# 日志
+StandardOutput=append:/var/log/newclaw/gateway.stdout.log
+StandardError=append:/var/log/newclaw/gateway.stderr.log
+
+# 资源限制
+LimitNOFILE=65536
+LimitNPROC=4096
+
+[Install]
+WantedBy=multi-user.target

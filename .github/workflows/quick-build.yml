@@ -1,0 +1,31 @@
+name: Quick Build
+
+# 快速构建 - 仅构建不上传，用于测试
+on:
+  push:
+    branches-ignore: [main, master]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/workflows/**'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+jobs:
+  quick-check:
+    name: Quick Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: dtolnay/rust-toolchain@stable
+      
+      - uses: Swatinem/rust-cache@v2
+      
+      - name: Check
+        run: cargo check
+        
+      - name: Test
+        run: cargo test --lib
