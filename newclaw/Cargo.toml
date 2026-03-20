@@ -4,7 +4,7 @@ version = "0.7.0"
 edition = "2021"
 authors = ["NewClaw Team"]
 description = "Production-ready AI Agent Framework - Stability + Security + Enterprise"
-license = "MIT OR Apache-2.0"
+license = "Apache-2.0"
 repository = "https://github.com/newclaw/newclaw"
 readme = "README.md"
 keywords = ["ai", "agent", "llm", "openai", "ollama"]
@@ -77,6 +77,10 @@ tempfile = "3.10"
 [[bin]]
 name = "newclaw"
 path = "src/main.rs"
+
+[[bin]]
+name = "feishu-connect"
+path = "src/bin/feishu-connect.rs"
 
 [lib]
 name = "newclaw"
