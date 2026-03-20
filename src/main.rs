@@ -17,6 +17,7 @@
 #![allow(unused_imports)]
 
 use clap::{Parser, Subcommand};
+use crate::cli::skill::SkillCommands;
 
 #[derive(Parser)]
 #[command(name = "newclaw")]
@@ -412,84 +413,6 @@ enum SessionCommands {
     Close {
         /// Session ID
         id: String,
-    },
-}
-
-#[derive(Subcommand)]
-enum SkillCommands {
-    /// Search skills from skillhub
-    Search {
-        /// Search query
-        query: String,
-
-        /// Results per page
-        #[arg(short, long, default_value = "20")]
-        limit: usize,
-
-        /// Page number
-        #[arg(short, long, default_value = "1")]
-        page: usize,
-    },
-
-    /// Install a skill
-    Install {
-        /// Skill name
-        name: String,
-
-        /// Version (optional)
-        #[arg(short, long)]
-        version: Option<String>,
-
-        /// Force reinstall
-        #[arg(short, long)]
-        force: bool,
-    },
-
-    /// Uninstall a skill
-    Uninstall {
-        /// Skill name
-        name: String,
-
-        /// Force remove without confirmation
-        #[arg(short, long)]
-        force: bool,
-    },
-
-    /// Update skills
-    Update {
-        /// Skill name (optional, updates all if not specified)
-        name: Option<String>,
-
-        /// Check updates only, don't install
-        #[arg(short, long)]
-        check_only: bool,
-    },
-
-    /// List installed skills
-    List {
-        /// Show detailed information
-        #[arg(short, long)]
-        verbose: bool,
-
-        /// Filter by name
-        #[arg(short, long)]
-        filter: Option<String>,
-    },
-
-    /// Show skill information
-    Info {
-        /// Skill name
-        name: String,
-    },
-
-    /// Verify a skill
-    Verify {
-        /// Skill name
-        name: String,
-
-        /// Check signature
-        #[arg(short, long)]
-        signature: bool,
     },
 }
 
