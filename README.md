@@ -1,11 +1,10 @@
-# NewClaw v0.5.0
+# NewClaw v0.7.2
 
 > 生产级 AI Agent 框架 - Rust 性能 + TypeScript 插件生态
 
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Test Coverage](https://img.shields.io/badge/tests-346%20passed-brightgreen.svg)](https://github.com/fofo365/newclaw)
-[![Release](https://img.shields.io/badge/release-v0.5.0-blue.svg)](https://github.com/fofo365/newclaw/releases/tag/v0.5.0)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/badge/release-v0.7.2-blue.svg)](https://github.com/fofo365/newclaw/releases/tag/v0.7.2)
 
 ## 🎯 项目概述
 
@@ -15,38 +14,29 @@ NewClaw 是新一代 AI Agent 框架，提供：
 - **🤖 多 LLM 支持** - OpenAI、Claude、GLM 统一接口
 - **📡 7 个消息通道** - 飞书、企微、钉钉、QQ、Telegram、Discord、AGP
 - **🧠 飞书集成 100%** - 文档、多维表格、云存储、知识库、聊天
-- **✅ 346 个测试** - 100% 通过率，生产就绪
-- **🚀 高性能** - 内存 < 50MB，比 OpenClaw 降低 75%
+- **🔒 安全特性** - JWT 认证、RBAC 权限、审计日志
+- **🚀 高性能** - 内存 < 50MB，启动时间 < 100ms
 
-## 📊 v0.5.0 新特性
+## 📊 v0.7.2 最新特性
 
-### 核心工具（82 个测试）
-| 工具类别 | 功能 | 状态 |
-|---------|------|------|
-| 记忆系统 | 自动迁移、语义搜索 | ✅ |
-| 文件操作 | read, write, edit | ✅ |
-| Shell 执行 | exec, process | ✅ |
-| 网络请求 | web_search, web_fetch | ✅ |
-| 浏览器控制 | navigate, click, screenshot | ✅ |
-| Canvas 展示 | present, hide, eval | ✅ |
-| 会话管理 | spawn, list, send | ✅ |
-| 节点管理 | status, notify | ✅ |
+### 🔧 核心改进
+- **飞书令牌修复** - 修复飞书文档创建的令牌类型混淆问题
+- **系统诊断工具** - Cron 任务管理、系统诊断工作流、AI 行为约束
+- **记忆归档恢复** - 自动归档、支持恢复、重要数据保护
+- **移除硬编码依赖** - 所有路径从配置文件读取
 
-### 飞书集成（87 个测试）
-| 工具 | 功能 | 状态 |
-|------|------|------|
-| feishu_doc | 文档读写 | ✅ |
-| feishu_bitable | 多维表格 | ✅ |
-| feishu_drive | 云存储 | ✅ |
-| feishu_wiki | 知识库 | ✅ |
-| feishu_chat | 聊天 | ✅ |
+### v0.7.1 增强功能
+- **消息去重机制** - 防止重复处理，重启后仍有效
+- **会话历史持久化** - 重启不丢失上下文
+- **Token 自动刷新** - 避免连接断开
+- **记忆系统修复** - 统一数据路径，FTS5 搜索优化
 
-### OpenClaw 对标
-| 指标 | OpenClaw | NewClaw | 覆盖率 |
-|------|----------|---------|--------|
-| 核心工具 | 10 类 | 10 类 | 100% |
-| 飞书集成 | 5 个 | 5 个 | 100% |
-| 测试覆盖 | 部分 | 100% | +100% |
+### v0.7.0 重大更新
+- **DAG 工作流引擎** - 6 层配置架构
+- **联邦记忆系统** - SQLite 存储 + FTS5 索引
+- **审计查询引擎** - 高级查询 + 统计报表
+- **ABAC 权限引擎** - 属性定义 + 策略评估
+- **配置热更新** - 文件监听 + 热重载
 
 ## 🚀 快速开始
 
@@ -54,7 +44,7 @@ NewClaw 是新一代 AI Agent 框架，提供：
 
 ```bash
 # 下载
-wget https://github.com/fofo365/newclaw/releases/download/v0.5.0/newclaw-linux-x86_64.tar.gz
+wget https://github.com/fofo365/newclaw/releases/download/v0.7.2/newclaw-linux-x86_64.tar.gz
 tar -xzf newclaw-linux-x86_64.tar.gz
 cd newclaw
 
@@ -166,16 +156,12 @@ cargo test
 
 # 运行特定测试
 cargo test test_feishu_doc
-
-# 查看覆盖率
-cargo tarpaulin
 ```
 
 ## 📊 性能指标
 
 | 指标 | 数值 |
 |------|------|
-| 测试通过率 | 100% (346 tests) |
 | 内存使用 | < 50MB |
 | 启动时间 | < 100ms |
 | 工具执行延迟 | < 50ms |
@@ -217,8 +203,8 @@ cargo tarpaulin
 ### Docker
 
 ```bash
-docker build -t newclaw:0.5.0 .
-docker run -d -p 3000:3000 newclaw:0.5.0
+docker build -t newclaw:0.7.2 .
+docker run -d -p 3000:3000 newclaw:0.7.2
 ```
 
 ### Systemd
@@ -237,15 +223,17 @@ sudo systemctl start newclaw
 
 ## 📄 许可证
 
-MIT License - 详见 [LICENSE](LICENSE)
+Apache-2.0 License - 详见 [LICENSE](LICENSE)
 
 ## 📞 支持
 
 - **Issues**: [GitHub Issues](https://github.com/fofo365/newclaw/issues)
 - **文档**: [docs/](docs/)
+- **Releases**: [GitHub Releases](https://github.com/fofo365/newclaw/releases)
 
 ---
 
-**版本**: v0.5.0  
-**发布日期**: 2026-03-12  
-**维护者**: NewClaw Team
+**版本**: v0.7.2  
+**发布日期**: 2026-03-18  
+**维护者**: NewClaw Team  
+**许可证**: Apache-2.0
